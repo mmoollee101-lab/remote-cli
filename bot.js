@@ -1,6 +1,6 @@
 require("dotenv").config();
 const TelegramBot = require("node-telegram-bot-api");
-const { spawn, exec } = require("child_process");
+const { spawn } = require("child_process");
 const path = require("path");
 const fs = require("fs");
 const crypto = require("crypto");
@@ -8,22 +8,17 @@ const crypto = require("crypto");
 // ─── 설정 가이드 출력 ────────────────────────────────────────────
 function printSetupGuide() {
   console.log(`
-╔══════════════════════════════════════════════════════════════╗
-║          Claude Code Telegram Remote Controller              ║
-╠══════════════════════════════════════════════════════════════╣
-║                                                              ║
-║  1. Telegram에서 @BotFather 검색                              ║
-║  2. /newbot 명령으로 봇 생성                                   ║
-║  3. 발급받은 토큰을 .env 파일에 설정:                            ║
-║     TELEGRAM_BOT_TOKEN=your_token_here                       ║
-║                                                              ║
-║  4. 봇 실행 후 텔레그램에서 /start 전송                          ║
-║  5. 콘솔에 출력된 유저 ID를 .env에 설정:                         ║
-║     AUTHORIZED_USER_ID=your_id_here                          ║
-║                                                              ║
-║  6. 봇 재실행하면 준비 완료!                                     ║
-║                                                              ║
-╚══════════════════════════════════════════════════════════════╝
+  Claude Code Telegram Remote Controller
+  ───────────────────────────────────────
+
+  1. Telegram에서 @BotFather 검색
+  2. /newbot 명령으로 봇 생성
+  3. 발급받은 토큰을 .env에 설정:
+     TELEGRAM_BOT_TOKEN=your_token_here
+  4. 봇 실행 후 텔레그램에서 /start 전송
+  5. 콘솔에 출력된 유저 ID를 .env에 설정:
+     AUTHORIZED_USER_ID=your_id_here
+  6. 봇 재실행하면 준비 완료!
 `);
 }
 
@@ -125,25 +120,46 @@ async function sendLongMessage(chatId, text, options = {}) {
 // ─── Claude Code 실행 ────────────────────────────────────────────
 function runClaude(prompt, chatId) {
   return new Promise((resolve, reject) => {
-    // 프롬프트에서 쌍따옴표 이스케이프
-    const escaped = prompt.replace(/"/g, '\\"');
-    const command = `claude -p "${escaped}" --output-format json --session-id ${sessionId}`;
+    const args = [
+      "-p", prompt,
+      "--output-format", "json",
+      "--session-id", sessionId,
+    ];
 
-    console.log(`[CMD] ${command}`);
+    console.log(`[CMD] claude -p "${prompt.substring(0, 50)}..." --session-id ${sessionId}`);
 
-    const proc = exec(command, {
+    // Windows에서는 .cmd 파일 실행을 위해 process.platform 체크
+    const isWindows = process.platform === "win32";
+
+    const proc = spawn(isWindows ? "claude.cmd" : "claude", args, {
       cwd: workingDir,
-      maxBuffer: 10 * 1024 * 1024,
-      timeout: 300000,
       env: { ...process.env },
-    }, (error, stdout, stderr) => {
+      windowsHide: true,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+
+    currentProcess = proc;
+    proc.stdin.end();
+
+    let stdout = "";
+    let stderr = "";
+
+    proc.stdout.on("data", (data) => {
+      stdout += data.toString();
+    });
+
+    proc.stderr.on("data", (data) => {
+      stderr += data.toString();
+    });
+
+    proc.on("close", (code) => {
       currentProcess = null;
 
       if (stderr) console.log(`[STDERR] ${stderr}`);
 
-      if (error) {
-        console.error(`[ERROR] ${error.message}`);
-        reject(new Error(stderr || error.message));
+      if (code !== 0 && code !== null) {
+        console.error(`[ERROR] exit code ${code}`);
+        reject(new Error(stderr || `프로세스가 코드 ${code}로 종료되었습니다.`));
         return;
       }
 
@@ -151,8 +167,11 @@ function runClaude(prompt, chatId) {
       resolve(stdout);
     });
 
-    currentProcess = proc;
-    proc.stdin.end();
+    proc.on("error", (err) => {
+      currentProcess = null;
+      console.error(`[ERROR] ${err.message}`);
+      reject(err);
+    });
   });
 }
 
@@ -328,6 +347,14 @@ bot.onText(/\/read(?:\s+(.+))?/, async (msg, match) => {
   }
 
   const filePath = path.resolve(workingDir, fileName);
+
+  // Path Traversal 방지: 작업 디렉토리 밖의 파일 접근 차단
+  if (!filePath.startsWith(workingDir)) {
+    await bot.sendMessage(chatId, "⛔ 작업 디렉토리 밖의 파일에는 접근할 수 없습니다.", {
+      parse_mode: "Markdown",
+    });
+    return;
+  }
 
   if (!fs.existsSync(filePath)) {
     await bot.sendMessage(chatId, `❌ 파일을 찾을 수 없습니다: \`${fileName}\``, {
