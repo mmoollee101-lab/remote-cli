@@ -1175,7 +1175,7 @@ bot.onText(/\/preview(?:\s+(.+))?/, async (msg, match) => {
         await bot.sendChatAction(chatId, "upload_photo");
         await bot.sendPhoto(chatId, screenshotPath, { caption: `📸 ${fileName} (GUI)` });
         try { fs.unlinkSync(screenshotPath); } catch {}
-        try { result.child.kill(); } catch {}
+        exec(`taskkill /PID ${result.child.pid} /T /F`, () => {});
       }
 
     } else {
