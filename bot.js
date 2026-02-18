@@ -4,7 +4,7 @@ const TelegramBot = require("node-telegram-bot-api");
 const path = require("path");
 const fs = require("fs");
 const os = require("os");
-const { exec, spawn } = require("child_process");
+const { exec } = require("child_process");
 const express = require("express");
 
 // ─── 파일 로깅 ──────────────────────────────────────────────────
@@ -745,10 +745,7 @@ function runScript(command, cwd) {
 // 스크립트 실행 후 3초 내 종료 → stdout, 아직 실행 중 → GUI로 판단 → 스크린샷
 function runScriptSmart(command, cwd) {
   return new Promise((resolve) => {
-    const parts = command.match(/(?:[^\s"]+|"[^"]*")+/g) || [command];
-    const cmd = parts[0];
-    const args = parts.slice(1).map(a => a.replace(/^"|"$/g, ""));
-    const child = spawn(cmd, args, { cwd, shell: true, stdio: ["ignore", "pipe", "pipe"] });
+    const child = exec(command, { cwd, maxBuffer: 1024 * 1024 });
 
     let stdout = "";
     let stderr = "";
