@@ -63,6 +63,8 @@ let sessionId = crypto.randomUUID();
 let workingDir = process.cwd();
 let currentProcess = null;
 let isProcessing = false;
+let skipPermissions = false;
+let needsPermissionChoice = true; // 새 세션 시작 시 권한 모드 선택 필요
 
 // ─── 인증 미들웨어 ───────────────────────────────────────────────
 function isAuthorized(msg) {
@@ -125,6 +127,10 @@ function runClaude(prompt, chatId) {
       "--output-format", "json",
       "--session-id", sessionId,
     ];
+
+    if (skipPermissions) {
+      args.push("--dangerously-skip-permissions");
+    }
 
     console.log(`[CMD] claude -p "${prompt.substring(0, 50)}..." --session-id ${sessionId}`);
 
@@ -240,11 +246,49 @@ bot.onText(/\/new/, async (msg) => {
   const chatId = msg.chat.id;
 
   sessionId = crypto.randomUUID();
+  skipPermissions = false;
+  needsPermissionChoice = true;
+
   await bot.sendMessage(
     chatId,
-    `🆕 새 세션이 시작되었습니다.\n세션 ID: \`${sessionId}\``,
-    { parse_mode: "Markdown" }
+    `🆕 새 세션이 시작되었습니다.\n세션 ID: \`${sessionId}\`\n\n권한 모드를 선택하세요:`,
+    {
+      parse_mode: "Markdown",
+      reply_markup: {
+        inline_keyboard: [
+          [
+            { text: "🔒 안전 모드 (기본)", callback_data: "perm_safe" },
+            { text: "⚡ 전체 허용", callback_data: "perm_skip" },
+          ],
+        ],
+      },
+    }
   );
+});
+
+// 권한 모드 선택 콜백
+bot.on("callback_query", async (query) => {
+  const chatId = query.message.chat.id;
+
+  if (query.data === "perm_safe") {
+    skipPermissions = false;
+    needsPermissionChoice = false;
+    await bot.answerCallbackQuery(query.id);
+    await bot.editMessageText(
+      `🔒 안전 모드로 설정되었습니다.\n권한이 필요한 작업은 거부될 수 있습니다.`,
+      { chat_id: chatId, message_id: query.message.message_id }
+    );
+    console.log("[MODE] 안전 모드");
+  } else if (query.data === "perm_skip") {
+    skipPermissions = true;
+    needsPermissionChoice = false;
+    await bot.answerCallbackQuery(query.id);
+    await bot.editMessageText(
+      `⚡ 전체 허용 모드로 설정되었습니다.\n파일 수정, 명령 실행 등 모든 작업이 허용됩니다.`,
+      { chat_id: chatId, message_id: query.message.message_id }
+    );
+    console.log("[MODE] 전체 허용 모드 (skip permissions)");
+  }
 });
 
 // /status - 현재 상태
@@ -411,6 +455,25 @@ bot.on("message", async (msg) => {
 
   const chatId = msg.chat.id;
   const prompt = msg.text;
+
+  // 첫 메시지 시 권한 모드 선택
+  if (needsPermissionChoice) {
+    await bot.sendMessage(
+      chatId,
+      "먼저 권한 모드를 선택하세요:",
+      {
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: "🔒 안전 모드 (기본)", callback_data: "perm_safe" },
+              { text: "⚡ 전체 허용", callback_data: "perm_skip" },
+            ],
+          ],
+        },
+      }
+    );
+    return;
+  }
 
   // 동시 요청 방지
   if (isProcessing) {
