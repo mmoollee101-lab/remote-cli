@@ -143,6 +143,7 @@ const PREVIEW_PORT = 18923;
 let expressServer = null;
 let tunnelProcess = null;
 let tunnelUrl = null;
+let previewChildPid = null; // GUI 미리보기 프로세스 PID (종료 버튼용)
 
 // ─── 메시지 큐 ──────────────────────────────────────────────────
 const messageQueue = [];
@@ -712,13 +713,38 @@ function stopTunnel() {
 
 function bringWindowToFront(pid) {
   return new Promise((resolve) => {
-    const ps = [
-      `Add-Type -MemberDefinition '[DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h); [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int c);' -Name W32 -Namespace Win32 -EA SilentlyContinue`,
-      `$pids = @(${pid}); $q = @(${pid})`,
-      `while ($q.Count -gt 0) { $next = @(); foreach ($p in $q) { Get-CimInstance Win32_Process -Filter "ParentProcessId=$p" -EA SilentlyContinue | ForEach-Object { $pids += $_.ProcessId; $next += $_.ProcessId } }; $q = $next }`,
-      `foreach ($p in $pids) { $proc = Get-Process -Id $p -EA SilentlyContinue; if ($proc -and $proc.MainWindowHandle -ne [IntPtr]::Zero) { [Win32.W32]::ShowWindow($proc.MainWindowHandle, 9); [Win32.W32]::SetForegroundWindow($proc.MainWindowHandle); Start-Sleep -Milliseconds 300; break } }`,
-    ].join("; ");
-    exec(`powershell -Command "${ps}"`, { timeout: 5000 }, () => resolve());
+    const script = path.join(os.tmpdir(), `bringfront_${Date.now()}.ps1`);
+    const ps = `
+Add-Type -MemberDefinition @"
+[DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
+[DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int c);
+"@ -Name W32 -Namespace Win32 -ErrorAction SilentlyContinue
+
+$pids = @(${pid})
+$q = @(${pid})
+while ($q.Count -gt 0) {
+  $next = @()
+  foreach ($p in $q) {
+    Get-CimInstance Win32_Process -Filter "ParentProcessId=$p" -ErrorAction SilentlyContinue |
+      ForEach-Object { $pids += $_.ProcessId; $next += $_.ProcessId }
+  }
+  $q = $next
+}
+foreach ($p in $pids) {
+  $proc = Get-Process -Id $p -ErrorAction SilentlyContinue
+  if ($proc -and $proc.MainWindowHandle -ne [IntPtr]::Zero) {
+    [Win32.W32]::ShowWindow($proc.MainWindowHandle, 9) | Out-Null
+    [Win32.W32]::SetForegroundWindow($proc.MainWindowHandle) | Out-Null
+    Start-Sleep -Milliseconds 500
+    break
+  }
+}
+`;
+    fs.writeFileSync(script, ps);
+    exec(`powershell -ExecutionPolicy Bypass -File "${script}"`, { timeout: 8000 }, () => {
+      try { fs.unlinkSync(script); } catch {}
+      resolve();
+    });
   });
 }
 
@@ -858,6 +884,23 @@ bot.onText(/\/new/, async (msg) => {
 // 콜백 쿼리 핸들러 (권한 모드 선택 + AskUserQuestion 응답)
 bot.on("callback_query", async (query) => {
   const chatId = query.message.chat.id;
+
+  // Preview 프로세스 종료 버튼
+  if (query.data === "preview_kill") {
+    await bot.answerCallbackQuery(query.id);
+    if (previewChildPid) {
+      exec(`taskkill /PID ${previewChildPid} /T /F`, () => {});
+      await bot.editMessageText(`🛑 프로세스 종료됨 (PID: ${previewChildPid})`, {
+        chat_id: chatId, message_id: query.message.message_id,
+      });
+      previewChildPid = null;
+    } else {
+      await bot.editMessageText("⚪ 이미 종료된 프로세스입니다.", {
+        chat_id: chatId, message_id: query.message.message_id,
+      });
+    }
+    return;
+  }
 
   // 권한 모드 선택
   if (query.data === "perm_safe" || query.data === "perm_skip") {
@@ -1147,14 +1190,23 @@ bot.onText(/\/preview(?:\s+(.+))?/, async (msg, match) => {
           parse_mode: "Markdown",
         });
       } else {
-        // GUI 앱: 창을 앞으로 가져온 뒤 스크린샷 촬영 후 프로세스 종료
+        // GUI 앱: 창을 앞으로 가져온 뒤 스크린샷 촬영, 종료 버튼 제공
         await bringWindowToFront(result.child.pid);
         const screenshotPath = path.join(os.tmpdir(), `preview_${Date.now()}.png`);
         await takeScreenshot(screenshotPath);
         await bot.sendChatAction(chatId, "upload_photo");
         await bot.sendPhoto(chatId, screenshotPath, { caption: `📸 ${fileName} (GUI)` });
         try { fs.unlinkSync(screenshotPath); } catch {}
-        exec(`taskkill /PID ${result.child.pid} /T /F`, () => {});
+        // 프로세스 PID 저장 + 종료 버튼 전송
+        previewChildPid = result.child.pid;
+        await bot.sendMessage(chatId, `▶️ \`${fileName}\` 실행 중 (PID: ${result.child.pid})`, {
+          parse_mode: "Markdown",
+          reply_markup: {
+            inline_keyboard: [[
+              { text: "🛑 프로세스 종료", callback_data: "preview_kill" },
+            ]],
+          },
+        });
       }
 
     } else {
