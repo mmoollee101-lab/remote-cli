@@ -1134,12 +1134,13 @@ bot.onText(/\/preview(?:\s+(.+))?/, async (msg, match) => {
           parse_mode: "Markdown",
         });
       } else {
-        // GUI 앱: 스크린샷 촬영
+        // GUI 앱: 스크린샷 촬영 후 프로세스 종료
         const screenshotPath = path.join(os.tmpdir(), `preview_${Date.now()}.png`);
         await takeScreenshot(screenshotPath);
         await bot.sendChatAction(chatId, "upload_photo");
         await bot.sendPhoto(chatId, screenshotPath, { caption: `📸 ${fileName} (GUI)` });
         try { fs.unlinkSync(screenshotPath); } catch {}
+        try { result.child.kill(); } catch {}
       }
 
     } else {
