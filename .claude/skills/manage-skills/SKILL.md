@@ -29,7 +29,10 @@ argument-hint: "[선택사항: 특정 스킬 이름 또는 집중할 영역]"
 
 현재 프로젝트에 등록된 검증 스킬 목록입니다. 새 스킬 생성/삭제 시 이 목록을 업데이트합니다.
 
-(아직 등록된 검증 스킬이 없습니다)
+| 스킬 | 경로 | 커버리지 |
+|------|------|----------|
+| `verify-security` | `.claude/skills/verify-security/SKILL.md` | 인증, Path Traversal, 환경변수, 입력 검증 |
+| `verify-process` | `.claude/skills/verify-process/SKILL.md` | 프로세스 스폰, 시그널 핸들링, 동시성, 리소스 정리 |
 
 ## 워크플로우
 
