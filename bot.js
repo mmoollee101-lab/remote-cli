@@ -4,6 +4,8 @@ const TelegramBot = require("node-telegram-bot-api");
 const path = require("path");
 const fs = require("fs");
 const os = require("os");
+const { exec } = require("child_process");
+const express = require("express");
 
 // ─── 파일 로깅 ──────────────────────────────────────────────────
 const LOG_FILE = path.join(process.cwd(), "bot.log");
@@ -81,6 +83,8 @@ bot.setMyCommands([
   { command: "cancel", description: "현재 작업 취소" },
   { command: "files", description: "파일 목록 보기" },
   { command: "read", description: "파일 내용 읽기" },
+  { command: "preview", description: "파일 미리보기 (HTML/이미지/스크립트)" },
+  { command: "tunnel", description: "터널 관리 (status/start/stop)" },
 ]);
 
 log("[INFO] 봇이 시작되었습니다. 텔레그램에서 메시지를 보내보세요.");
@@ -133,6 +137,12 @@ let needsPermissionChoice = true;
 let needsDirectoryChoice = false;
 let pendingMessage = null;
 let pendingSdkAsk = null;
+
+// ─── Preview/Tunnel 상태 ────────────────────────────────────────
+const PREVIEW_PORT = 18923;
+let expressServer = null;
+let tunnelProcess = null;
+let tunnelUrl = null;
 
 // ─── 메시지 큐 ──────────────────────────────────────────────────
 const messageQueue = [];
@@ -610,6 +620,128 @@ async function runClaude(prompt, chatId) {
   }
 }
 
+// ─── Preview 기능 ────────────────────────────────────────────────
+
+const FILE_CATEGORIES = {
+  html: new Set([".html", ".htm"]),
+  image: new Set([".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp"]),
+  executable: new Set([".exe"]),
+  script: new Map([
+    [".py", "python"], [".js", "node"], [".bat", "cmd /c"], [".cmd", "cmd /c"],
+    [".ps1", "powershell -ExecutionPolicy Bypass -File"],
+    [".sh", "bash"], [".ts", "npx tsx"],
+  ]),
+};
+
+function detectFileCategory(filePath) {
+  const ext = path.extname(filePath).toLowerCase();
+  if (FILE_CATEGORIES.html.has(ext)) return "html";
+  if (FILE_CATEGORIES.image.has(ext)) return "image";
+  if (FILE_CATEGORIES.executable.has(ext)) return "executable";
+  if (FILE_CATEGORIES.script.has(ext)) return "script";
+  return "other";
+}
+
+function getScriptRunner(filePath) {
+  const ext = path.extname(filePath).toLowerCase();
+  return FILE_CATEGORIES.script.get(ext) || null;
+}
+
+function startPreviewServer() {
+  if (expressServer) return;
+  const app = express();
+  app.use(express.static(workingDir));
+  expressServer = app.listen(PREVIEW_PORT, () => {
+    log(`[PREVIEW] Express static server started on port ${PREVIEW_PORT} → ${workingDir}`);
+  });
+  expressServer.on("error", (err) => {
+    logError(`[PREVIEW] Server error: ${err.message}`);
+    expressServer = null;
+  });
+}
+
+function stopPreviewServer() {
+  if (expressServer) {
+    expressServer.close();
+    expressServer = null;
+    log("[PREVIEW] Express server stopped");
+  }
+}
+
+async function startTunnel() {
+  if (tunnelUrl) return tunnelUrl;
+  startPreviewServer();
+  try {
+    const { Tunnel } = await import("cloudflared");
+    const t = Tunnel.quick(`http://localhost:${PREVIEW_PORT}`);
+    tunnelProcess = t;
+
+    // URL 이벤트 대기 (최대 30초)
+    const url = await new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error("Tunnel URL timeout (30s)")), 30000);
+      t.once("url", (u) => { clearTimeout(timeout); resolve(u); });
+      t.once("error", (err) => { clearTimeout(timeout); reject(err); });
+    });
+
+    tunnelUrl = url;
+    log(`[TUNNEL] Cloudflare tunnel ready: ${tunnelUrl}`);
+
+    // 프로세스 종료 감지
+    t.on("exit", (code) => {
+      log(`[TUNNEL] Process exited with code ${code}`);
+      tunnelProcess = null;
+      tunnelUrl = null;
+    });
+
+    return tunnelUrl;
+  } catch (err) {
+    logError(`[TUNNEL] Failed to start: ${err.message}`);
+    throw err;
+  }
+}
+
+function stopTunnel() {
+  if (tunnelProcess) {
+    tunnelProcess.stop();
+    tunnelProcess = null;
+    tunnelUrl = null;
+    log("[TUNNEL] Tunnel stopped");
+  }
+  stopPreviewServer();
+}
+
+function takeScreenshot(outputPath) {
+  return new Promise((resolve, reject) => {
+    const ps = `
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+$bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+$bmp = New-Object System.Drawing.Bitmap($bounds.Width, $bounds.Height)
+$g = [System.Drawing.Graphics]::FromImage($bmp)
+$g.CopyFromScreen($bounds.Location, [System.Drawing.Point]::Empty, $bounds.Size)
+$bmp.Save('${outputPath.replace(/\\/g, "\\\\")}')
+$g.Dispose()
+$bmp.Dispose()
+`.trim().replace(/\n/g, "; ");
+    exec(`powershell -Command "${ps}"`, { timeout: 10000 }, (err) => {
+      if (err) reject(err);
+      else resolve(outputPath);
+    });
+  });
+}
+
+function runScript(command, cwd) {
+  return new Promise((resolve) => {
+    exec(command, { cwd, timeout: 30000, maxBuffer: 1024 * 1024 }, (err, stdout, stderr) => {
+      let output = "";
+      if (stdout) output += stdout;
+      if (stderr) output += (output ? "\n" : "") + stderr;
+      if (err && !output) output = err.message;
+      resolve(output || "(출력 없음)");
+    });
+  });
+}
+
 // ─── 명령어 핸들러 ───────────────────────────────────────────────
 
 // /start - 봇 시작 + 유저 ID 안내
@@ -648,7 +780,9 @@ bot.onText(/\/start/, async (msg) => {
       `/setdir <경로> - 작업 디렉토리 변경\n` +
       `/cancel - 현재 작업 취소\n` +
       `/files - 파일 목록\n` +
-      `/read <파일> - 파일 내용 읽기\n\n` +
+      `/read <파일> - 파일 내용 읽기\n` +
+      `/preview <파일> - 파일 미리보기\n` +
+      `/tunnel - 터널 관리\n\n` +
       `일반 메시지를 보내면 Claude Code에 전달됩니다.`,
     { parse_mode: "Markdown" }
   );
@@ -792,6 +926,12 @@ bot.onText(/\/setdir(?:\s+(.+))?/, async (msg, match) => {
 
   workingDir = resolved;
   saveState();
+  // 서버가 실행 중이면 재시작 (새 디렉토리 서빙)
+  if (expressServer) {
+    stopPreviewServer();
+    startPreviewServer();
+    log("[PREVIEW] Server restarted for new workingDir");
+  }
   await bot.sendMessage(
     chatId,
     `📂 작업 디렉토리 변경됨: \`${workingDir}\``,
@@ -895,6 +1035,123 @@ bot.onText(/\/read(?:\s+(.+))?/, async (msg, match) => {
     });
   } catch (err) {
     await bot.sendMessage(chatId, `❌ 파일 읽기 오류: ${err.message}`);
+  }
+});
+
+// /preview <file> - 파일 미리보기
+bot.onText(/\/preview(?:\s+(.+))?/, async (msg, match) => {
+  if (!isAuthorized(msg)) return;
+  const chatId = msg.chat.id;
+  const fileName = match[1]?.trim();
+
+  if (!fileName) {
+    await bot.sendMessage(chatId, "사용법: `/preview <파일명>`\n\nHTML → 터널 링크, 이미지 → 사진, 스크립트 → 실행 결과", {
+      parse_mode: "Markdown",
+    });
+    return;
+  }
+
+  const filePath = path.resolve(workingDir, fileName);
+
+  // Path Traversal 방지
+  if (!filePath.startsWith(workingDir)) {
+    await bot.sendMessage(chatId, "⛔ 작업 디렉토리 밖의 파일에는 접근할 수 없습니다.");
+    return;
+  }
+
+  if (!fs.existsSync(filePath)) {
+    await bot.sendMessage(chatId, `❌ 파일을 찾을 수 없습니다: \`${fileName}\``, {
+      parse_mode: "Markdown",
+    });
+    return;
+  }
+
+  const category = detectFileCategory(filePath);
+  log(`[PREVIEW] ${fileName} → category: ${category}`);
+
+  try {
+    if (category === "html") {
+      // HTML: Express + Cloudflare tunnel → clickable link
+      await bot.sendChatAction(chatId, "typing");
+      const url = await startTunnel();
+      const relativePath = path.relative(workingDir, filePath).replace(/\\/g, "/");
+      const previewUrl = `${url}/${relativePath}`;
+      await bot.sendMessage(chatId, `🌐 미리보기 링크:\n${previewUrl}\n\n터널 종료: /tunnel stop`);
+
+    } else if (category === "image") {
+      // Image: send as photo
+      await bot.sendChatAction(chatId, "upload_photo");
+      await bot.sendPhoto(chatId, filePath, { caption: `📷 ${fileName}` });
+
+    } else if (category === "executable") {
+      // EXE: run → wait 3s → screenshot → send
+      await bot.sendMessage(chatId, `▶️ \`${fileName}\` 실행 중...`, { parse_mode: "Markdown" });
+      exec(`"${filePath}"`, { cwd: workingDir });
+      await new Promise((r) => setTimeout(r, 3000));
+      const screenshotPath = path.join(os.tmpdir(), `preview_${Date.now()}.png`);
+      await takeScreenshot(screenshotPath);
+      await bot.sendChatAction(chatId, "upload_photo");
+      await bot.sendPhoto(chatId, screenshotPath, { caption: `📸 ${fileName} 실행 후 스크린샷` });
+      try { fs.unlinkSync(screenshotPath); } catch {}
+
+    } else if (category === "script") {
+      // Script: run with interpreter → capture output
+      const runner = getScriptRunner(filePath);
+      await bot.sendMessage(chatId, `▶️ \`${fileName}\` 실행 중...`, { parse_mode: "Markdown" });
+      const output = await runScript(`${runner} "${filePath}"`, workingDir);
+      const trimmed = output.length > 4000 ? output.substring(0, 4000) + "\n...(잘림)" : output;
+      await sendLongMessage(chatId, `💻 \`${fileName}\` 실행 결과:\n\`\`\`\n${trimmed}\n\`\`\``, {
+        parse_mode: "Markdown",
+      });
+
+    } else {
+      // Other: send as document
+      const stat = fs.statSync(filePath);
+      if (stat.size > 50 * 1024 * 1024) {
+        await bot.sendMessage(chatId, `❌ 파일이 너무 큽니다 (${(stat.size / 1024 / 1024).toFixed(1)}MB). 50MB 이하만 전송 가능합니다.`);
+        return;
+      }
+      await bot.sendChatAction(chatId, "upload_document");
+      await bot.sendDocument(chatId, filePath, { caption: `📎 ${fileName}` });
+    }
+  } catch (err) {
+    await bot.sendMessage(chatId, `❌ 미리보기 오류: ${err.message}`);
+  }
+});
+
+// /tunnel [status|start|stop] - 터널 관리
+bot.onText(/\/tunnel(?:\s+(.+))?/, async (msg, match) => {
+  if (!isAuthorized(msg)) return;
+  const chatId = msg.chat.id;
+  const action = (match[1] || "status").trim().toLowerCase();
+
+  if (action === "status") {
+    if (tunnelUrl) {
+      await bot.sendMessage(chatId, `🟢 터널 활성\n🌐 ${tunnelUrl}\n\n종료: /tunnel stop`);
+    } else {
+      await bot.sendMessage(chatId, "⚪ 터널 비활성\n\n시작: /tunnel start");
+    }
+  } else if (action === "start") {
+    if (tunnelUrl) {
+      await bot.sendMessage(chatId, `🟢 이미 활성 상태입니다.\n🌐 ${tunnelUrl}`);
+      return;
+    }
+    try {
+      await bot.sendMessage(chatId, "⏳ 터널 시작 중...");
+      const url = await startTunnel();
+      await bot.sendMessage(chatId, `🟢 터널 시작됨!\n🌐 ${url}\n\n종료: /tunnel stop`);
+    } catch (err) {
+      await bot.sendMessage(chatId, `❌ 터널 시작 실패: ${err.message}`);
+    }
+  } else if (action === "stop") {
+    if (!tunnelUrl && !tunnelProcess) {
+      await bot.sendMessage(chatId, "⚪ 터널이 이미 비활성 상태입니다.");
+      return;
+    }
+    stopTunnel();
+    await bot.sendMessage(chatId, "🔴 터널이 종료되었습니다.");
+  } else {
+    await bot.sendMessage(chatId, "사용법: `/tunnel [status|start|stop]`", { parse_mode: "Markdown" });
   }
 });
 
@@ -1082,6 +1339,9 @@ async function gracefulShutdown(signal) {
   if (currentAbortController) {
     currentAbortController.abort();
   }
+
+  // Preview 서버/터널 정리
+  stopTunnel();
 
   if (AUTHORIZED_USER_ID) {
     await bot.sendMessage(AUTHORIZED_USER_ID, "🔴 봇이 꺼졌습니다.").catch(() => {});

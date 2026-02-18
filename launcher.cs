@@ -148,6 +148,8 @@ class TrayLauncher
             "  /cancel    현재 작업 취소\r\n" +
             "  /files     파일 목록 보기\r\n" +
             "  /read      파일 내용 읽기\r\n" +
+            "  /preview   파일 미리보기 (HTML/이미지/스크립트)\r\n" +
+            "  /tunnel    터널 관리 (status/start/stop)\r\n" +
             "\r\n" +
             "\r\n" +
             "[권한 모드]\r\n" +
