@@ -712,33 +712,12 @@ function stopTunnel() {
 
 function bringWindowToFront(pid) {
   return new Promise((resolve) => {
-    const ps = `
-Add-Type @'
-using System; using System.Runtime.InteropServices;
-public class W32 {
-  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
-  [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int c);
-}
-'@
-$pids = @(${pid})
-$q = @(${pid})
-while ($q.Count -gt 0) {
-  $next = @()
-  foreach ($p in $q) {
-    Get-CimInstance Win32_Process -Filter "ParentProcessId=$p" -EA SilentlyContinue | ForEach-Object { $pids += $_.ProcessId; $next += $_.ProcessId }
-  }
-  $q = $next
-}
-foreach ($p in $pids) {
-  $proc = Get-Process -Id $p -EA SilentlyContinue
-  if ($proc -and $proc.MainWindowHandle -ne [IntPtr]::Zero) {
-    [W32]::ShowWindow($proc.MainWindowHandle, 9)
-    [W32]::SetForegroundWindow($proc.MainWindowHandle)
-    Start-Sleep -Milliseconds 300
-    break
-  }
-}
-`.trim().replace(/\n/g, "; ");
+    const ps = [
+      `Add-Type -MemberDefinition '[DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h); [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int c);' -Name W32 -Namespace Win32 -EA SilentlyContinue`,
+      `$pids = @(${pid}); $q = @(${pid})`,
+      `while ($q.Count -gt 0) { $next = @(); foreach ($p in $q) { Get-CimInstance Win32_Process -Filter "ParentProcessId=$p" -EA SilentlyContinue | ForEach-Object { $pids += $_.ProcessId; $next += $_.ProcessId } }; $q = $next }`,
+      `foreach ($p in $pids) { $proc = Get-Process -Id $p -EA SilentlyContinue; if ($proc -and $proc.MainWindowHandle -ne [IntPtr]::Zero) { [Win32.W32]::ShowWindow($proc.MainWindowHandle, 9); [Win32.W32]::SetForegroundWindow($proc.MainWindowHandle); Start-Sleep -Milliseconds 300; break } }`,
+    ].join("; ");
     exec(`powershell -Command "${ps}"`, { timeout: 5000 }, () => resolve());
   });
 }
