@@ -1,0 +1,83 @@
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install --production
+
+      - name: Build launcher exe
+        run: |
+          mkdir dist -ErrorAction SilentlyContinue
+          & "C:\Windows\Microsoft.NET\Framework\v4.0.30319\csc.exe" /nologo /target:winexe /win32icon:app.ico /out:"dist\Claude Telegram Bot.exe" launcher.cs
+        shell: pwsh
+
+      - name: Create release package
+        run: |
+          $files = @(
+            'bot.js',
+            'package.json',
+            'package-lock.json',
+            '.env.example',
+            'launcher.cs',
+            'app.ico',
+            'setup.bat',
+            'README.md'
+          )
+
+          $dest = 'release\claude-telegram-bot'
+          mkdir $dest -Force | Out-Null
+
+          # Copy root files
+          foreach ($f in $files) {
+            if (Test-Path $f) { Copy-Item $f $dest }
+          }
+
+          # Copy node_modules
+          Copy-Item -Recurse node_modules "$dest\node_modules"
+
+          # Copy dist (exe)
+          Copy-Item -Recurse dist "$dest\dist"
+
+          # Create zip
+          Compress-Archive -Path "$dest\*" -DestinationPath "claude-telegram-bot-${{ github.ref_name }}.zip"
+        shell: pwsh
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: claude-telegram-bot-*.zip
+          body: |
+            ## 설치 방법
+
+            ### 사전 요구사항
+            - [Node.js 20+](https://nodejs.org)
+            - [Claude Code CLI](https://www.npmjs.com/package/@anthropic-ai/claude-code) (`npm i -g @anthropic-ai/claude-code`)
+
+            ### 빠른 설치
+            1. zip 다운로드 후 압축 해제
+            2. `setup.bat` 실행 (의존성 설치 + .env 설정)
+            3. `dist\Claude Telegram Bot.exe` 실행
+
+            ### 수동 설치
+            1. zip 압축 해제
+            2. `.env.example`을 `.env`로 복사 후 토큰 설정
+            3. `npm install` (zip에 node_modules 포함됨, 생략 가능)
+            4. `dist\Claude Telegram Bot.exe` 실행 또는 `node bot.js`
+          generate_release_notes: true

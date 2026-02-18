@@ -1,2 +1,6 @@
 node_modules/
 .env
+bot.log
+bot-state.json
+dist/
+nul
