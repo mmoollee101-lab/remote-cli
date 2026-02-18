@@ -710,6 +710,39 @@ function stopTunnel() {
   stopPreviewServer();
 }
 
+function bringWindowToFront(pid) {
+  return new Promise((resolve) => {
+    const ps = `
+Add-Type @'
+using System; using System.Runtime.InteropServices;
+public class W32 {
+  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
+  [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int c);
+}
+'@
+$pids = @(${pid})
+$q = @(${pid})
+while ($q.Count -gt 0) {
+  $next = @()
+  foreach ($p in $q) {
+    Get-CimInstance Win32_Process -Filter "ParentProcessId=$p" -EA SilentlyContinue | ForEach-Object { $pids += $_.ProcessId; $next += $_.ProcessId }
+  }
+  $q = $next
+}
+foreach ($p in $pids) {
+  $proc = Get-Process -Id $p -EA SilentlyContinue
+  if ($proc -and $proc.MainWindowHandle -ne [IntPtr]::Zero) {
+    [W32]::ShowWindow($proc.MainWindowHandle, 9)
+    [W32]::SetForegroundWindow($proc.MainWindowHandle)
+    Start-Sleep -Milliseconds 300
+    break
+  }
+}
+`.trim().replace(/\n/g, "; ");
+    exec(`powershell -Command "${ps}"`, { timeout: 5000 }, () => resolve());
+  });
+}
+
 function takeScreenshot(outputPath) {
   return new Promise((resolve, reject) => {
     const ps = `
@@ -1113,10 +1146,11 @@ bot.onText(/\/preview(?:\s+(.+))?/, async (msg, match) => {
       await bot.sendPhoto(chatId, filePath, { caption: `📷 ${fileName}` });
 
     } else if (category === "executable") {
-      // EXE: run → wait 3s → screenshot → send
+      // EXE: run → wait 3s → 창 앞으로 → screenshot → send
       await bot.sendMessage(chatId, `▶️ \`${fileName}\` 실행 중...`, { parse_mode: "Markdown" });
-      exec(`"${filePath}"`, { cwd: workingDir });
+      const exeChild = exec(`"${filePath}"`, { cwd: workingDir });
       await new Promise((r) => setTimeout(r, 3000));
+      await bringWindowToFront(exeChild.pid);
       const screenshotPath = path.join(os.tmpdir(), `preview_${Date.now()}.png`);
       await takeScreenshot(screenshotPath);
       await bot.sendChatAction(chatId, "upload_photo");
@@ -1134,7 +1168,8 @@ bot.onText(/\/preview(?:\s+(.+))?/, async (msg, match) => {
           parse_mode: "Markdown",
         });
       } else {
-        // GUI 앱: 스크린샷 촬영 후 프로세스 종료
+        // GUI 앱: 창을 앞으로 가져온 뒤 스크린샷 촬영 후 프로세스 종료
+        await bringWindowToFront(result.child.pid);
         const screenshotPath = path.join(os.tmpdir(), `preview_${Date.now()}.png`);
         await takeScreenshot(screenshotPath);
         await bot.sendChatAction(chatId, "upload_photo");
