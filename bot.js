@@ -4,7 +4,7 @@ const TelegramBot = require("node-telegram-bot-api");
 const path = require("path");
 const fs = require("fs");
 const os = require("os");
-const { exec } = require("child_process");
+const { exec, spawn } = require("child_process");
 const express = require("express");
 
 // ─── 파일 로깅 ──────────────────────────────────────────────────
@@ -742,6 +742,38 @@ function runScript(command, cwd) {
   });
 }
 
+// 스크립트 실행 후 3초 내 종료 → stdout, 아직 실행 중 → GUI로 판단 → 스크린샷
+function runScriptSmart(command, cwd) {
+  return new Promise((resolve) => {
+    const parts = command.match(/(?:[^\s"]+|"[^"]*")+/g) || [command];
+    const cmd = parts[0];
+    const args = parts.slice(1).map(a => a.replace(/^"|"$/g, ""));
+    const child = spawn(cmd, args, { cwd, shell: true, stdio: ["ignore", "pipe", "pipe"] });
+
+    let stdout = "";
+    let stderr = "";
+    let exited = false;
+
+    child.stdout.on("data", (d) => { stdout += d.toString(); });
+    child.stderr.on("data", (d) => { stderr += d.toString(); });
+
+    child.on("exit", () => { exited = true; });
+
+    // 3초 대기
+    setTimeout(() => {
+      if (exited) {
+        // 콘솔 스크립트: stdout 반환
+        let output = stdout;
+        if (stderr) output += (output ? "\n" : "") + stderr;
+        resolve({ type: "text", output: output || "(출력 없음)" });
+      } else {
+        // GUI 스크립트: 스크린샷
+        resolve({ type: "gui", child });
+      }
+    }, 3000);
+  });
+}
+
 // ─── 명령어 핸들러 ───────────────────────────────────────────────
 
 // /start - 봇 시작 + 유저 ID 안내
@@ -1095,14 +1127,23 @@ bot.onText(/\/preview(?:\s+(.+))?/, async (msg, match) => {
       try { fs.unlinkSync(screenshotPath); } catch {}
 
     } else if (category === "script") {
-      // Script: run with interpreter → capture output
+      // Script: 3초 내 종료 → stdout, GUI면 → 스크린샷
       const runner = getScriptRunner(filePath);
       await bot.sendMessage(chatId, `▶️ \`${fileName}\` 실행 중...`, { parse_mode: "Markdown" });
-      const output = await runScript(`${runner} "${filePath}"`, workingDir);
-      const trimmed = output.length > 4000 ? output.substring(0, 4000) + "\n...(잘림)" : output;
-      await sendLongMessage(chatId, `💻 \`${fileName}\` 실행 결과:\n\`\`\`\n${trimmed}\n\`\`\``, {
-        parse_mode: "Markdown",
-      });
+      const result = await runScriptSmart(`${runner} "${filePath}"`, workingDir);
+      if (result.type === "text") {
+        const trimmed = result.output.length > 4000 ? result.output.substring(0, 4000) + "\n...(잘림)" : result.output;
+        await sendLongMessage(chatId, `💻 \`${fileName}\` 실행 결과:\n\`\`\`\n${trimmed}\n\`\`\``, {
+          parse_mode: "Markdown",
+        });
+      } else {
+        // GUI 앱: 스크린샷 촬영
+        const screenshotPath = path.join(os.tmpdir(), `preview_${Date.now()}.png`);
+        await takeScreenshot(screenshotPath);
+        await bot.sendChatAction(chatId, "upload_photo");
+        await bot.sendPhoto(chatId, screenshotPath, { caption: `📸 ${fileName} (GUI)` });
+        try { fs.unlinkSync(screenshotPath); } catch {}
+      }
 
     } else {
       // Other: send as document
