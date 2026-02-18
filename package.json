@@ -1,0 +1,13 @@
+{
+  "name": "claude-telegram-remote",
+  "version": "1.0.0",
+  "description": "Telegram bot bridge for controlling Claude Code CLI remotely",
+  "main": "bot.js",
+  "scripts": {
+    "start": "node bot.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "node-telegram-bot-api": "^0.66.0"
+  }
+}
