@@ -84,73 +84,111 @@ class TrayLauncher
     {
         Form guide = new Form();
         guide.Text = "Claude Telegram Bot - 설명서";
-        guide.Size = new Size(560, 520);
+        guide.Size = new Size(600, 620);
         guide.StartPosition = FormStartPosition.CenterScreen;
         guide.FormBorderStyle = FormBorderStyle.FixedDialog;
         guide.MaximizeBox = false;
         guide.MinimizeBox = false;
-        guide.Font = new Font("Malgun Gothic", 9.5f);
 
-        TextBox tb = new TextBox();
-        tb.Multiline = true;
-        tb.ReadOnly = true;
-        tb.ScrollBars = ScrollBars.Vertical;
-        tb.Dock = DockStyle.Fill;
-        tb.BackColor = Color.White;
-        tb.Text =
-@"═══════════════════════════════════════
-  Claude Telegram Bot  -  설정 가이드
-═══════════════════════════════════════
+        RichTextBox rtb = new RichTextBox();
+        rtb.ReadOnly = true;
+        rtb.Dock = DockStyle.Fill;
+        rtb.BackColor = Color.White;
+        rtb.BorderStyle = BorderStyle.None;
+        rtb.Font = new Font("Consolas", 10f);
 
-텔레그램으로 Claude Code CLI를 원격 제어하는 봇입니다.
+        rtb.Text =
+            "Claude Telegram Bot\r\n" +
+            "설정 가이드\r\n" +
+            "\r\n" +
+            "텔레그램으로 Claude Code CLI를 원격 제어하는 봇입니다.\r\n" +
+            "\r\n" +
+            "\r\n" +
+            "[사전 요구사항]\r\n" +
+            "\r\n" +
+            "  - Node.js 20 이상 설치\r\n" +
+            "  - Claude Code CLI 설치\r\n" +
+            "    npm i -g @anthropic-ai/claude-code\r\n" +
+            "  - Claude Code에 로그인 완료 (claude 한번 실행)\r\n" +
+            "\r\n" +
+            "\r\n" +
+            "[설치 방법]\r\n" +
+            "\r\n" +
+            "  1. 이 폴더에서 npm install 실행\r\n" +
+            "  2. .env 파일을 편집 (트레이 메뉴 > .env 편집)\r\n" +
+            "\r\n" +
+            "\r\n" +
+            "[.env 설정]\r\n" +
+            "\r\n" +
+            "  TELEGRAM_BOT_TOKEN=봇토큰\r\n" +
+            "    @BotFather에서 /newbot으로 봇 생성 후 발급\r\n" +
+            "\r\n" +
+            "  AUTHORIZED_USER_ID=유저ID\r\n" +
+            "    봇 실행 후 텔레그램에서 /start 보내면 콘솔에 출력됨\r\n" +
+            "\r\n" +
+            "  COMPUTER_NAME=내PC\r\n" +
+            "    텔레그램에 표시될 컴퓨터 이름 (선택사항)\r\n" +
+            "    여러 컴퓨터에서 사용할 때 구분용\r\n" +
+            "\r\n" +
+            "\r\n" +
+            "[여러 컴퓨터에서 사용하기]\r\n" +
+            "\r\n" +
+            "  1. BotFather에서 컴퓨터마다 별도 봇 생성\r\n" +
+            "  2. 각 컴퓨터에 이 프로그램 설치\r\n" +
+            "  3. .env에 각자 다른 봇 토큰 + COMPUTER_NAME 설정\r\n" +
+            "  4. 텔레그램에서 채팅방 골라서 사용\r\n" +
+            "\r\n" +
+            "\r\n" +
+            "[텔레그램 명령어]\r\n" +
+            "\r\n" +
+            "  /start     봇 시작 + 유저 ID 확인\r\n" +
+            "  /new       새 세션 시작\r\n" +
+            "  /status    현재 상태 (세션, 디렉토리)\r\n" +
+            "  /setdir    작업 디렉토리 변경\r\n" +
+            "  /cancel    현재 작업 취소\r\n" +
+            "  /files     파일 목록 보기\r\n" +
+            "  /read      파일 내용 읽기\r\n" +
+            "\r\n" +
+            "\r\n" +
+            "[권한 모드]\r\n" +
+            "\r\n" +
+            "  안전 모드: 파일 읽기만 자동 허용, 나머지는 승인 필요\r\n" +
+            "  전체 허용: 모든 도구 사용 자동 허용\r\n" +
+            "\r\n" +
+            "\r\n" +
+            "[트러블슈팅]\r\n" +
+            "\r\n" +
+            "  - 봇이 안 켜지면: node가 PATH에 있는지 확인\r\n" +
+            "  - .env 변경 후: 트레이 메뉴 > 재시작\r\n" +
+            "  - 로그 확인: 트레이 메뉴 > 로그 보기\r\n";
 
-──── 사전 요구사항 ────
-• Node.js 20 이상 설치
-• Claude Code CLI 설치 (npm i -g @anthropic-ai/claude-code)
-• Claude Code에 로그인 완료 (claude 한번 실행)
+        // 제목 볼드 처리
+        rtb.Select(0, "Claude Telegram Bot".Length);
+        rtb.SelectionFont = new Font("Malgun Gothic", 14f, FontStyle.Bold);
 
-──── 설치 방법 ────
-1. 이 폴더에서 npm install 실행
-2. .env 파일을 편집 (트레이 메뉴 → .env 편집)
+        rtb.Select("Claude Telegram Bot\r\n".Length, "설정 가이드".Length);
+        rtb.SelectionFont = new Font("Malgun Gothic", 11f);
+        rtb.SelectionColor = Color.Gray;
 
-──── .env 설정 ────
+        // 섹션 제목 볼드
+        string text = rtb.Text;
+        string[] sections = { "[사전 요구사항]", "[설치 방법]", "[.env 설정]",
+            "[여러 컴퓨터에서 사용하기]", "[텔레그램 명령어]", "[권한 모드]", "[트러블슈팅]" };
+        foreach (string sec in sections)
+        {
+            int idx = text.IndexOf(sec);
+            if (idx >= 0)
+            {
+                rtb.Select(idx, sec.Length);
+                rtb.SelectionFont = new Font("Malgun Gothic", 10.5f, FontStyle.Bold);
+                rtb.SelectionColor = Color.FromArgb(50, 50, 50);
+            }
+        }
 
-TELEGRAM_BOT_TOKEN=봇토큰
-  → @BotFather에서 /newbot으로 봇 생성 후 발급
+        rtb.Select(0, 0);
+        rtb.Padding = new Padding(12, 12, 12, 12);
 
-AUTHORIZED_USER_ID=유저ID
-  → 봇 실행 후 텔레그램에서 /start 보내면 콘솔에 출력됨
-
-COMPUTER_NAME=내PC
-  → 텔레그램에 표시될 컴퓨터 이름 (선택사항)
-  → 여러 컴퓨터에서 사용할 때 구분용
-
-──── 여러 컴퓨터에서 사용하기 ────
-1. BotFather에서 컴퓨터마다 별도 봇 생성
-2. 각 컴퓨터에 이 프로그램 설치
-3. .env에 각자 다른 봇 토큰 + COMPUTER_NAME 설정
-4. 텔레그램에서 채팅방 골라서 사용
-
-──── 텔레그램 명령어 ────
-/start    - 봇 시작 + 유저 ID 확인
-/new      - 새 세션 시작
-/status   - 현재 상태 (세션, 디렉토리)
-/setdir   - 작업 디렉토리 변경
-/cancel   - 현재 작업 취소
-/files    - 파일 목록 보기
-/read     - 파일 내용 읽기
-
-──── 권한 모드 ────
-🔒 안전 모드: 파일 읽기만 자동 허용, 나머지는 거부
-⚡ 전체 허용: 모든 도구 사용 자동 허용
-
-──── 트러블슈팅 ────
-• 봇이 안 켜지면: node가 PATH에 있는지 확인
-• .env 변경 후: 트레이 메뉴 → 재시작
-• 로그 확인: 트레이 메뉴 → 로그 보기
-";
-
-        guide.Controls.Add(tb);
+        guide.Controls.Add(rtb);
         guide.Show();
     }
 
