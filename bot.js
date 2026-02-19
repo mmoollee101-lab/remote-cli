@@ -333,15 +333,34 @@ function encodeProjectPath(dir) {
   return dir.replace(/[^a-zA-Z0-9]/g, "-");
 }
 
-function findRecentSessions(dir, limit = 5) {
-  const projectsBase = path.join(os.homedir(), ".claude", "projects");
-  if (!fs.existsSync(projectsBase)) return [];
+// JSONL에서 마지막 유저 메시지 추출 (파일 끝 8KB 읽기)
+function extractLastUserMessage(fullPath) {
+  try {
+    const stat = fs.statSync(fullPath);
+    const fd = fs.openSync(fullPath, "r");
+    const readSize = Math.min(8192, stat.size);
+    const buf = Buffer.alloc(readSize);
+    fs.readSync(fd, buf, 0, readSize, Math.max(0, stat.size - readSize));
+    fs.closeSync(fd);
+    const chunk = buf.toString("utf-8");
+    const lines = chunk.split("\n").reverse();
+    for (const line of lines) {
+      try {
+        const obj = JSON.parse(line);
+        if (obj.type === "user" && obj.message?.role === "user") {
+          const content = obj.message.content;
+          if (typeof content === "string") {
+            return content.substring(0, 60);
+          }
+        }
+      } catch {}
+    }
+  } catch {}
+  return "";
+}
 
-  const encoded = encodeProjectPath(dir);
-  const projectDir = path.join(projectsBase, encoded);
-
-  if (!fs.existsSync(projectDir)) return [];
-
+// 특정 프로젝트 디렉토리에서 세션 목록 가져오기
+function getSessionsFromProjectDir(projectDir, dirLabel) {
   try {
     return fs.readdirSync(projectDir)
       .filter((f) => /^[0-9a-f]{8}-/.test(f) && f.endsWith(".jsonl"))
@@ -349,36 +368,56 @@ function findRecentSessions(dir, limit = 5) {
         const fullPath = path.join(projectDir, f);
         const stat = fs.statSync(fullPath);
         const id = path.basename(f, ".jsonl");
-
-        // 첫 4KB만 읽어서 첫 유저 메시지 추출
-        let preview = "";
-        try {
-          const fd = fs.openSync(fullPath, "r");
-          const buf = Buffer.alloc(4096);
-          const bytesRead = fs.readSync(fd, buf, 0, 4096, 0);
-          fs.closeSync(fd);
-          const chunk = buf.toString("utf-8", 0, bytesRead);
-          for (const line of chunk.split("\n")) {
-            try {
-              const obj = JSON.parse(line);
-              if (obj.type === "user" && obj.message?.role === "user") {
-                const content = obj.message.content;
-                if (typeof content === "string") {
-                  preview = content.substring(0, 60);
-                  break;
-                }
-              }
-            } catch {}
-          }
-        } catch {}
-
-        return { id, mtime: stat.mtime, preview };
-      })
-      .sort((a, b) => b.mtime - a.mtime)
-      .slice(0, limit);
+        const preview = extractLastUserMessage(fullPath);
+        const active = (Date.now() - stat.mtime.getTime()) < 120000; // 2분 이내 수정 → 활성
+        return { id, mtime: stat.mtime, preview, active, dirLabel };
+      });
   } catch {
     return [];
   }
+}
+
+function findRecentSessions(dir, limit = 5) {
+  const projectsBase = path.join(os.homedir(), ".claude", "projects");
+  if (!fs.existsSync(projectsBase)) return [];
+
+  const encoded = encodeProjectPath(dir);
+  const projectDir = path.join(projectsBase, encoded);
+
+  // 1. 현재 workingDir의 세션
+  let sessions = [];
+  if (fs.existsSync(projectDir)) {
+    sessions = getSessionsFromProjectDir(projectDir, null);
+  }
+
+  // 2. 다른 프로젝트 중 최근 수정된 세션도 포함 (최근 24시간)
+  try {
+    const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+    for (const entry of fs.readdirSync(projectsBase, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const otherDir = path.join(projectsBase, entry.name);
+      if (otherDir === projectDir) continue; // 이미 검색함
+
+      // 디렉토리 이름에서 경로 복원 (대략적)
+      const dirName = entry.name.replace(/^[A-Za-z]-/, (m) => m[0] + ":\\").replace(/-/g, "\\");
+      const folderName = path.basename(dirName);
+
+      for (const f of fs.readdirSync(otherDir)) {
+        if (!/^[0-9a-f]{8}-/.test(f) || !f.endsWith(".jsonl")) continue;
+        try {
+          const stat = fs.statSync(path.join(otherDir, f));
+          if (stat.mtime.getTime() > cutoff) {
+            sessions.push(...getSessionsFromProjectDir(otherDir, folderName));
+            break; // 이 디렉토리는 하나만 확인하면 충분
+          }
+        } catch {}
+      }
+    }
+  } catch {}
+
+  return sessions
+    .sort((a, b) => b.mtime - a.mtime)
+    .slice(0, limit);
 }
 
 // ─── AskUserQuestion → 텔레그램 전달 ─────────────────────────────
@@ -1487,8 +1526,10 @@ bot.onText(/\/resume(?:\s+(.+))?/, async (msg, match) => {
     const timeStr = s.mtime.toLocaleString("ko-KR", {
       month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
     });
-    const previewStr = s.preview ? ` — ${s.preview.substring(0, 20)}` : "";
-    return [{ text: `${timeStr}${previewStr}`, callback_data: `resume_${i}` }];
+    const activeTag = s.active ? "🟢 " : "";
+    const dirTag = s.dirLabel ? `[${s.dirLabel}] ` : "";
+    const previewStr = s.preview ? ` — ${s.preview.substring(0, 16)}` : "";
+    return [{ text: `${activeTag}${dirTag}${timeStr}${previewStr}`, callback_data: `resume_${i}` }];
   });
 
   pendingResumeSessions = sessions;
@@ -1790,8 +1831,8 @@ async function sendStartupMessage() {
   if (!AUTHORIZED_USER_ID) return;
 
   try {
-    // 이어받을 수 있는 세션 확인
-    const sessions = findRecentSessions(workingDir, 1);
+    // 이어받을 수 있는 세션 확인 (모든 프로젝트에서)
+    const sessions = findRecentSessions(workingDir, 3);
     const recent = sessions[0];
 
     let text = `🟢 봇이 켜졌습니다. [${COMPUTER_NAME}]\n📂 \`${workingDir}\``;
@@ -1804,7 +1845,9 @@ async function sendStartupMessage() {
         : mins < 1440
           ? `${Math.floor(mins / 60)}시간 전`
           : `${Math.floor(mins / 1440)}일 전`;
-      text += `\n\n💡 이어받을 수 있는 세션 (${timeAgo}):`;
+      const activeTag = recent.active ? "🟢 활성 " : "";
+      const dirTag = recent.dirLabel ? `[${recent.dirLabel}] ` : "";
+      text += `\n\n💡 ${activeTag}${dirTag}세션 (${timeAgo}):`;
       if (recent.preview) text += `\n💬 ${recent.preview}`;
     }
 
