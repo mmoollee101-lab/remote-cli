@@ -249,6 +249,15 @@ async function sendLongMessage(chatId, text, options = {}) {
 }
 
 // ─── 자연어 디렉토리 해석 ─────────────────────────────────────────
+const KOREAN_STOPWORDS = new Set([
+  "에", "에서", "의", "로", "으로", "을", "를", "이", "가", "은", "는", "도",
+  "좀", "만", "에서의", "으로의", "이라는", "라는", "라고", "이라고", "있는", "안의",
+  "폴더", "디렉토리", "프로젝트", "레포", "repo",
+  "작업", "시작", "열어", "열기", "가자", "하자", "해줘", "해", "줘", "이동",
+  "이동하자", "이동해", "이동해줘", "변경", "변경해", "변경해줘", "갈래", "할래",
+  "보자", "봐", "가줘", "열어줘", "옮겨", "옮겨줘", "바꿔", "바꿔줘",
+]);
+
 function resolveDirectory(description) {
   // 1. 직접 경로로 시도
   const direct = path.resolve(description.trim());
@@ -267,20 +276,11 @@ function resolveDirectory(description) {
 
   const desc = description.toLowerCase().trim();
   let basePaths = [];
-  let folderName = desc;
 
   for (const loc of locationMap) {
     const found = loc.keywords.find((kw) => desc.includes(kw));
     if (found) {
       basePaths = loc.paths;
-      // 키워드 제거 + 한국어 조사/접미사 정리
-      folderName = desc
-        .replace(found, "")
-        .replace(/[의에서]\s*/g, " ")
-        .replace(/\s*(폴더|디렉토리|프로젝트|레포|repo)\s*/g, " ")
-        .replace(/\s*(에서|에|로|으로)\s*(작업|시작|열어|열기|가자|하자|해줘|해|줘|갈래|할래|보자|봐).*$/g, "")
-        .replace(/\s+(에서|에|로|으로|을|를|이|가|은|는|도|좀|만)$/g, "")
-        .trim();
       break;
     }
   }
@@ -294,33 +294,36 @@ function resolveDirectory(description) {
       path.join(home, "OneDrive", "문서"),
       home,
     ];
-    folderName = desc
-      .replace(/\s*(폴더|디렉토리|프로젝트|레포|repo)\s*/g, " ")
-      .replace(/\s*(에서|에|로|으로)\s*(작업|시작|열어|열기|가자|하자|해줘|해|줘|갈래|할래|보자|봐).*$/g, "")
-      .replace(/\s+(에서|에|로|으로|을|를|이|가|은|는|도|좀|만)$/g, "")
-      .trim();
   }
 
-  if (!folderName || folderName.length > 40) return null;
+  // 3. 입력에서 토큰 추출 → 불용어 제거 → 실제 폴더명과 대조
+  const tokens = desc.split(/\s+/).filter((t) => t.length >= 2 && !KOREAN_STOPWORDS.has(t));
+  // 위치 키워드도 토큰에서 제거
+  for (const loc of locationMap) {
+    for (const kw of loc.keywords) {
+      const idx = tokens.indexOf(kw);
+      if (idx !== -1) tokens.splice(idx, 1);
+      // 붙어있는 경우 (바탕화면에 → 바탕화면 + 에)
+      for (let i = tokens.length - 1; i >= 0; i--) {
+        if (tokens[i].startsWith(kw)) {
+          tokens[i] = tokens[i].slice(kw.length);
+          if (tokens[i].length < 2 || KOREAN_STOPWORDS.has(tokens[i])) tokens.splice(i, 1);
+        }
+      }
+    }
+  }
 
-  // 3. 각 기본 경로에서 폴더 검색
   for (const base of basePaths) {
     if (!fs.existsSync(base)) continue;
-
-    // 정확히 일치
-    const exact = path.join(base, folderName);
-    if (fs.existsSync(exact) && fs.statSync(exact).isDirectory()) {
-      return exact;
-    }
-
-    // 대소문자 무시 검색 (정확 일치 또는 폴더이름이 검색어를 포함)
     try {
       const entries = fs.readdirSync(base, { withFileTypes: true });
       for (const entry of entries) {
         if (!entry.isDirectory()) continue;
         const name = entry.name.toLowerCase();
-        if (name === folderName || name.includes(folderName)) {
-          return path.join(base, entry.name);
+        for (const token of tokens) {
+          if (name === token || name.includes(token)) {
+            return path.join(base, entry.name);
+          }
         }
       }
     } catch {}
