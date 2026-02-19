@@ -278,7 +278,8 @@ function resolveDirectory(description) {
         .replace(found, "")
         .replace(/[의에서]\s*/g, " ")
         .replace(/\s*(폴더|디렉토리|프로젝트|레포|repo)\s*/g, " ")
-        .replace(/\s*(에서|에|로|으로)\s*(작업|시작|열어|가자|하자|해줘).*$/g, "")
+        .replace(/\s*(에서|에|로|으로)\s*(작업|시작|열어|열기|가자|하자|해줘|해|줘|갈래|할래|보자|봐).*$/g, "")
+        .replace(/\s+(에서|에|로|으로|을|를|이|가|은|는|도|좀|만)$/g, "")
         .trim();
       break;
     }
@@ -295,7 +296,8 @@ function resolveDirectory(description) {
     ];
     folderName = desc
       .replace(/\s*(폴더|디렉토리|프로젝트|레포|repo)\s*/g, " ")
-      .replace(/\s*(에서|에|로|으로)\s*(작업|시작|열어|가자|하자|해줘).*$/g, "")
+      .replace(/\s*(에서|에|로|으로)\s*(작업|시작|열어|열기|가자|하자|해줘|해|줘|갈래|할래|보자|봐).*$/g, "")
+      .replace(/\s+(에서|에|로|으로|을|를|이|가|은|는|도|좀|만)$/g, "")
       .trim();
   }
 
