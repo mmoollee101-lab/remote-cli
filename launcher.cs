@@ -14,10 +14,20 @@ class TrayLauncher
     static string botToken;
     static string chatId;
     static string computerName;
+    static System.Threading.Mutex appMutex;
 
     [STAThread]
     static void Main()
     {
+        // 중복 실행 방지
+        bool createdNew;
+        appMutex = new System.Threading.Mutex(true, "ClaudeTelegramBot_SingleInstance", out createdNew);
+        if (!createdNew)
+        {
+            MessageBox.Show("이미 실행 중입니다.", "Claude Telegram Bot", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
         string dir = Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, ".."));
         string botJs = Path.Combine(dir, "bot.js");
         logPath = Path.Combine(dir, "bot.log");
@@ -143,6 +153,7 @@ class TrayLauncher
             "\r\n" +
             "  /start     봇 시작 + 유저 ID 확인\r\n" +
             "  /new       새 세션 시작\r\n" +
+            "  /resume    터미널 세션 이어받기\r\n" +
             "  /status    현재 상태 (세션, 디렉토리)\r\n" +
             "  /setdir    작업 디렉토리 변경\r\n" +
             "  /cancel    현재 작업 취소\r\n" +

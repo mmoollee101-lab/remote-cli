@@ -7,6 +7,41 @@ const os = require("os");
 const { exec } = require("child_process");
 const express = require("express");
 
+// ─── 중복 실행 방지 ─────────────────────────────────────────────
+const LOCK_FILE = path.join(process.cwd(), "bot.lock");
+
+function acquireLock() {
+  try {
+    // 기존 lock 파일이 있으면 해당 PID가 살아있는지 확인
+    if (fs.existsSync(LOCK_FILE)) {
+      const oldPid = parseInt(fs.readFileSync(LOCK_FILE, "utf-8").trim(), 10);
+      if (oldPid) {
+        try {
+          process.kill(oldPid, 0); // 프로세스 존재 확인 (신호 안 보냄)
+          console.error(`[ERROR] 이미 실행 중인 봇이 있습니다 (PID: ${oldPid}). 종료합니다.`);
+          process.exit(1);
+        } catch {
+          // 프로세스가 없으면 stale lock — 무시하고 계속
+        }
+      }
+    }
+    fs.writeFileSync(LOCK_FILE, String(process.pid));
+  } catch (err) {
+    console.error(`[WARN] Lock 파일 생성 실패: ${err.message}`);
+  }
+}
+
+function releaseLock() {
+  try {
+    if (fs.existsSync(LOCK_FILE)) {
+      const pid = parseInt(fs.readFileSync(LOCK_FILE, "utf-8").trim(), 10);
+      if (pid === process.pid) fs.unlinkSync(LOCK_FILE);
+    }
+  } catch {}
+}
+
+acquireLock();
+
 // ─── 파일 로깅 ──────────────────────────────────────────────────
 const LOG_FILE = path.join(process.cwd(), "bot.log");
 
@@ -85,25 +120,12 @@ bot.setMyCommands([
   { command: "read", description: "파일 내용 읽기" },
   { command: "preview", description: "파일 미리보기 (HTML/이미지/스크립트)" },
   { command: "tunnel", description: "터널 관리 (status/start/stop)" },
+  { command: "resume", description: "터미널 세션 이어받기" },
 ]);
 
 log("[INFO] 봇이 시작되었습니다. 텔레그램에서 메시지를 보내보세요.");
 
-// 시작 알림 + 즉시 권한 모드 선택
-if (AUTHORIZED_USER_ID) {
-  bot.sendMessage(AUTHORIZED_USER_ID, `🟢 봇이 켜졌습니다. [${COMPUTER_NAME}]`).then(() => {
-    bot.sendMessage(AUTHORIZED_USER_ID, "권한 모드를 선택하세요:", {
-      reply_markup: {
-        inline_keyboard: [
-          [
-            { text: "🔒 안전 모드 (기본)", callback_data: "perm_safe" },
-            { text: "⚡ 전체 허용", callback_data: "perm_skip" },
-          ],
-        ],
-      },
-    });
-  }).catch(() => {});
-}
+// 시작 알림은 초기화 완료 후 sendStartupMessage()에서 전송
 
 // ─── 상태 영속화 ─────────────────────────────────────────────────
 const STATE_FILE = path.join(process.cwd(), "bot-state.json");
@@ -134,9 +156,10 @@ let currentAbortController = null;
 let isProcessing = false;
 let skipPermissions = false;
 let needsPermissionChoice = true;
-let needsDirectoryChoice = false;
 let pendingMessage = null;
 let pendingSdkAsk = null;
+let pendingResumeSessions = null;
+let pendingCommand = null; // { type: 'setdir'|'read'|'preview' }
 
 // ─── Preview/Tunnel 상태 ────────────────────────────────────────
 const PREVIEW_PORT = 18923;
@@ -302,6 +325,60 @@ function resolveDirectory(description) {
   }
 
   return null;
+}
+
+// ─── 세션 탐색 (터미널 세션 이어받기) ─────────────────────────────
+
+function encodeProjectPath(dir) {
+  return dir.replace(/[^a-zA-Z0-9]/g, "-");
+}
+
+function findRecentSessions(dir, limit = 5) {
+  const projectsBase = path.join(os.homedir(), ".claude", "projects");
+  if (!fs.existsSync(projectsBase)) return [];
+
+  const encoded = encodeProjectPath(dir);
+  const projectDir = path.join(projectsBase, encoded);
+
+  if (!fs.existsSync(projectDir)) return [];
+
+  try {
+    return fs.readdirSync(projectDir)
+      .filter((f) => /^[0-9a-f]{8}-/.test(f) && f.endsWith(".jsonl"))
+      .map((f) => {
+        const fullPath = path.join(projectDir, f);
+        const stat = fs.statSync(fullPath);
+        const id = path.basename(f, ".jsonl");
+
+        // 첫 4KB만 읽어서 첫 유저 메시지 추출
+        let preview = "";
+        try {
+          const fd = fs.openSync(fullPath, "r");
+          const buf = Buffer.alloc(4096);
+          const bytesRead = fs.readSync(fd, buf, 0, 4096, 0);
+          fs.closeSync(fd);
+          const chunk = buf.toString("utf-8", 0, bytesRead);
+          for (const line of chunk.split("\n")) {
+            try {
+              const obj = JSON.parse(line);
+              if (obj.type === "user" && obj.message?.role === "user") {
+                const content = obj.message.content;
+                if (typeof content === "string") {
+                  preview = content.substring(0, 60);
+                  break;
+                }
+              }
+            } catch {}
+          }
+        } catch {}
+
+        return { id, mtime: stat.mtime, preview };
+      })
+      .sort((a, b) => b.mtime - a.mtime)
+      .slice(0, limit);
+  } catch {
+    return [];
+  }
 }
 
 // ─── AskUserQuestion → 텔레그램 전달 ─────────────────────────────
@@ -843,6 +920,7 @@ bot.onText(/\/start/, async (msg) => {
       `작업 디렉토리: \`${workingDir}\`\n\n` +
       `명령어 목록:\n` +
       `/new - 새 세션 시작\n` +
+      `/resume - 터미널 세션 이어받기\n` +
       `/status - 현재 상태\n` +
       `/setdir <경로> - 작업 디렉토리 변경\n` +
       `/cancel - 현재 작업 취소\n` +
@@ -863,11 +941,10 @@ bot.onText(/\/new/, async (msg) => {
   sessionId = null;
   skipPermissions = false;
   needsPermissionChoice = true;
-  needsDirectoryChoice = false;
 
   await bot.sendMessage(
     chatId,
-    `🆕 새 세션이 시작되었습니다.\n\n권한 모드를 선택하세요:`,
+    `🆕 새 세션이 시작되었습니다.\n📂 \`${workingDir}\`\n\n권한 모드를 선택하세요:`,
     {
       reply_markup: {
         inline_keyboard: [
@@ -884,6 +961,67 @@ bot.onText(/\/new/, async (msg) => {
 // 콜백 쿼리 핸들러 (권한 모드 선택 + AskUserQuestion 응답)
 bot.on("callback_query", async (query) => {
   const chatId = query.message.chat.id;
+
+  // 빠른 액션 버튼
+  if (query.data.startsWith("quick_")) {
+    await bot.answerCallbackQuery(query.id);
+    try { await bot.deleteMessage(chatId, query.message.message_id); } catch {}
+
+    if (query.data === "quick_continue") {
+      if (isProcessing) {
+        await bot.sendMessage(chatId, "⏳ 이미 처리 중입니다.");
+      } else {
+        processMessage(chatId, "이어서 해줘");
+      }
+    } else if (query.data === "quick_new") {
+      sessionId = null;
+      skipPermissions = false;
+      needsPermissionChoice = true;
+      await bot.sendMessage(chatId, `🆕 새 세션이 시작되었습니다.\n📂 \`${workingDir}\`\n\n권한 모드를 선택하세요:`, {
+        parse_mode: "Markdown",
+        reply_markup: {
+          inline_keyboard: [[
+            { text: "🔒 안전 모드 (기본)", callback_data: "perm_safe" },
+            { text: "⚡ 전체 허용", callback_data: "perm_skip" },
+          ]],
+        },
+      });
+    } else if (query.data === "quick_files") {
+      try {
+        const entries = fs.readdirSync(workingDir, { withFileTypes: true });
+        const list = entries.map((e) => `${e.isDirectory() ? "📁" : "📄"} ${e.name}`).join("\n");
+        await sendLongMessage(chatId, `📂 \`${workingDir}\`\n\n${list || "(빈 디렉토리)"}`, { parse_mode: "Markdown" });
+      } catch (err) {
+        await bot.sendMessage(chatId, `❌ 오류: ${err.message}`);
+      }
+    }
+    return;
+  }
+
+  // 시작 시 이전 세션 이어받기 버튼
+  if (query.data === "resume_startup") {
+    const sessions = findRecentSessions(workingDir, 1);
+    if (sessions.length > 0) {
+      sessionId = sessions[0].id;
+      await bot.answerCallbackQuery(query.id);
+      await bot.editMessageText(
+        `🔄 세션 이어받기 완료!\n📅 ${sessions[0].mtime.toLocaleString("ko-KR")}\n\n권한 모드를 선택하세요:`,
+        {
+          chat_id: chatId, message_id: query.message.message_id,
+          reply_markup: {
+            inline_keyboard: [[
+              { text: "🔒 안전 모드", callback_data: "perm_safe" },
+              { text: "⚡ 전체 허용", callback_data: "perm_skip" },
+            ]],
+          },
+        }
+      );
+      log(`[RESUME] 시작 시 세션 이어받기: ${sessionId}`);
+    } else {
+      await bot.answerCallbackQuery(query.id, { text: "이어받을 세션이 없습니다." });
+    }
+    return;
+  }
 
   // Preview 프로세스 종료 버튼
   if (query.data === "preview_kill") {
@@ -902,11 +1040,48 @@ bot.on("callback_query", async (query) => {
     return;
   }
 
+  // 세션 이어받기 선택
+  if (query.data.startsWith("resume_") && pendingResumeSessions) {
+    const idx = parseInt(query.data.replace("resume_", ""), 10);
+    const selected = pendingResumeSessions[idx];
+    if (!selected) {
+      await bot.answerCallbackQuery(query.id, { text: "잘못된 선택입니다." });
+      return;
+    }
+
+    sessionId = selected.id;
+    pendingResumeSessions = null;
+
+    await bot.answerCallbackQuery(query.id);
+    await bot.editMessageText(
+      `🔄 세션 이어받기 완료!\n\n` +
+        `📅 ${selected.mtime.toLocaleString("ko-KR")}\n` +
+        (selected.preview ? `💬 ${selected.preview}\n` : "") +
+        `\n메시지를 보내면 이전 대화가 이어집니다.`,
+      { chat_id: chatId, message_id: query.message.message_id }
+    );
+    log(`[RESUME] 세션 이어받기: ${sessionId}`);
+
+    // 권한 모드 선택 필요하면 물어보기
+    if (needsPermissionChoice) {
+      await bot.sendMessage(chatId, "권한 모드를 선택하세요:", {
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: "🔒 안전 모드 (기본)", callback_data: "perm_safe" },
+              { text: "⚡ 전체 허용", callback_data: "perm_skip" },
+            ],
+          ],
+        },
+      });
+    }
+    return;
+  }
+
   // 권한 모드 선택
   if (query.data === "perm_safe" || query.data === "perm_skip") {
     skipPermissions = query.data === "perm_skip";
     needsPermissionChoice = false;
-    needsDirectoryChoice = true;
     await bot.answerCallbackQuery(query.id);
     const modeText = skipPermissions ? "⚡ 전체 허용 모드" : "🔒 안전 모드";
     await bot.editMessageText(
@@ -914,9 +1089,10 @@ bot.on("callback_query", async (query) => {
       { chat_id: chatId, message_id: query.message.message_id }
     );
     log(`[MODE] ${modeText}`);
+    const resumeHint = sessionId ? "\n이전 세션이 이어집니다." : "";
     await bot.sendMessage(
       chatId,
-      `📂 작업 디렉토리: \`${workingDir}\`\n\n변경하려면 경로를 입력하세요.\n바로 작업하려면 메시지를 보내세요.`,
+      `📂 \`${workingDir}\`${resumeHint}\n\n메시지를 보내면 작업이 시작됩니다. 디렉토리 변경: /setdir`,
       { parse_mode: "Markdown" }
     );
     // 대기 중인 메시지가 있으면 자동 처리 (사전에 보낸 메시지)
@@ -961,7 +1137,7 @@ bot.on("callback_query", async (query) => {
   }
 
   // 대기 중인 메시지가 있으면 자동 처리
-  if (!needsPermissionChoice && !needsDirectoryChoice && pendingMessage) {
+  if (!needsPermissionChoice && pendingMessage) {
     const saved = pendingMessage;
     pendingMessage = null;
     bot.emit("message", saved);
@@ -991,18 +1167,20 @@ bot.onText(/\/setdir(?:\s+(.+))?/, async (msg, match) => {
   const newDir = match[1]?.trim();
 
   if (!newDir) {
+    pendingCommand = { type: "setdir" };
     await bot.sendMessage(
       chatId,
-      `현재 작업 디렉토리: \`${workingDir}\`\n\n사용법: \`/setdir <경로>\``,
+      `📂 현재: \`${workingDir}\`\n\n어디로 이동할까요?`,
       { parse_mode: "Markdown" }
     );
     return;
   }
 
-  const resolved = path.resolve(newDir);
+  // 자연어 해석 시도 → 실패하면 정확한 경로로 시도
+  const resolved = resolveDirectory(newDir);
 
-  if (!fs.existsSync(resolved)) {
-    await bot.sendMessage(chatId, `❌ 디렉토리가 존재하지 않습니다: \`${resolved}\``, {
+  if (!resolved) {
+    await bot.sendMessage(chatId, `❌ 디렉토리를 찾을 수 없습니다: \`${newDir}\``, {
       parse_mode: "Markdown",
     });
     return;
@@ -1071,9 +1249,8 @@ bot.onText(/\/read(?:\s+(.+))?/, async (msg, match) => {
   const fileName = match[1]?.trim();
 
   if (!fileName) {
-    await bot.sendMessage(chatId, "사용법: `/read <파일명>`", {
-      parse_mode: "Markdown",
-    });
+    pendingCommand = { type: "read" };
+    await bot.sendMessage(chatId, "📄 읽을 파일명을 입력하세요:");
     return;
   }
 
@@ -1129,9 +1306,8 @@ bot.onText(/\/preview(?:\s+(.+))?/, async (msg, match) => {
   const fileName = match[1]?.trim();
 
   if (!fileName) {
-    await bot.sendMessage(chatId, "사용법: `/preview <파일명>`\n\nHTML → 터널 링크, 이미지 → 사진, 스크립트 → 실행 결과", {
-      parse_mode: "Markdown",
-    });
+    pendingCommand = { type: "preview" };
+    await bot.sendMessage(chatId, "👁️ 미리볼 파일명을 입력하세요:");
     return;
   }
 
@@ -1260,6 +1436,70 @@ bot.onText(/\/tunnel(?:\s+(.+))?/, async (msg, match) => {
   }
 });
 
+// /resume [latest] - 터미널 세션 이어받기
+bot.onText(/\/resume(?:\s+(.+))?/, async (msg, match) => {
+  if (!isAuthorized(msg)) return;
+  const chatId = msg.chat.id;
+  const arg = match[1]?.trim();
+
+  const sessions = findRecentSessions(workingDir);
+
+  if (sessions.length === 0) {
+    await bot.sendMessage(
+      chatId,
+      `이어받을 세션이 없습니다.\n📂 \`${workingDir}\``,
+      { parse_mode: "Markdown" }
+    );
+    return;
+  }
+
+  // /resume latest → 가장 최근 세션 자동 선택
+  if (arg === "latest") {
+    const s = sessions[0];
+    sessionId = s.id;
+    log(`[RESUME] 최신 세션 이어받기: ${sessionId}`);
+    await bot.sendMessage(
+      chatId,
+      `🔄 세션 이어받기 완료!\n\n` +
+        `📅 ${s.mtime.toLocaleString("ko-KR")}\n` +
+        (s.preview ? `💬 ${s.preview}\n` : "") +
+        `\n메시지를 보내면 이전 대화가 이어집니다.`,
+    );
+
+    // 권한 모드가 아직 선택 안 됐으면 물어보기
+    if (needsPermissionChoice) {
+      await bot.sendMessage(chatId, "권한 모드를 선택하세요:", {
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: "🔒 안전 모드 (기본)", callback_data: "perm_safe" },
+              { text: "⚡ 전체 허용", callback_data: "perm_skip" },
+            ],
+          ],
+        },
+      });
+    }
+    return;
+  }
+
+  // 세션 목록 표시 (인라인 키보드)
+  const buttons = sessions.map((s, i) => {
+    const timeStr = s.mtime.toLocaleString("ko-KR", {
+      month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
+    });
+    const previewStr = s.preview ? ` — ${s.preview.substring(0, 20)}` : "";
+    return [{ text: `${timeStr}${previewStr}`, callback_data: `resume_${i}` }];
+  });
+
+  pendingResumeSessions = sessions;
+
+  await bot.sendMessage(
+    chatId,
+    `🔄 이어받을 세션을 선택하세요:\n📂 \`${workingDir}\``,
+    { parse_mode: "Markdown", reply_markup: { inline_keyboard: buttons } }
+  );
+});
+
 // ─── 일반 메시지 처리 (Claude Code에 전달) ───────────────────────
 
 async function processMessage(chatId, prompt) {
@@ -1281,6 +1521,17 @@ async function processMessage(chatId, prompt) {
     if (response) {
       await sendLongMessage(chatId, response, { parse_mode: "Markdown" });
     }
+
+    // 빠른 액션 버튼
+    await bot.sendMessage(chatId, "⚡", {
+      reply_markup: {
+        inline_keyboard: [[
+          { text: "▶️ 이어서", callback_data: "quick_continue" },
+          { text: "🆕 새 세션", callback_data: "quick_new" },
+          { text: "📂 파일목록", callback_data: "quick_files" },
+        ]],
+      },
+    });
   } catch (err) {
     // 취소된 경우 무시
     if (err.name === "AbortError" || err.message?.includes("abort")) {
@@ -1308,9 +1559,69 @@ async function processMessage(chatId, prompt) {
   }
 }
 
+// ─── 파일/사진 업로드 처리 ────────────────────────────────────────
+bot.on("photo", async (msg) => {
+  if (!isAuthorized(msg)) return;
+  const chatId = msg.chat.id;
+  const photo = msg.photo[msg.photo.length - 1]; // 최대 해상도
+  const caption = msg.caption || "";
+
+  try {
+    const file = await bot.getFile(photo.file_id);
+    const ext = path.extname(file.file_path) || ".jpg";
+    const fileName = caption
+      ? caption.replace(/[<>:"/\\|?*]/g, "_") + ext
+      : `photo_${Date.now()}${ext}`;
+    const savePath = path.join(workingDir, fileName);
+
+    const url = `https://api.telegram.org/file/bot${BOT_TOKEN}/${file.file_path}`;
+    const https = require("https");
+    const fileStream = fs.createWriteStream(savePath);
+    https.get(url, (res) => {
+      res.pipe(fileStream);
+      fileStream.on("finish", () => {
+        fileStream.close();
+        bot.sendMessage(chatId, `📷 저장됨: \`${fileName}\``, { parse_mode: "Markdown" });
+        log(`[UPLOAD] 사진 저장: ${savePath}`);
+      });
+    });
+  } catch (err) {
+    await bot.sendMessage(chatId, `❌ 사진 저장 실패: ${err.message}`);
+  }
+});
+
+bot.on("document", async (msg) => {
+  if (!isAuthorized(msg)) return;
+  const chatId = msg.chat.id;
+  const doc = msg.document;
+
+  try {
+    const file = await bot.getFile(doc.file_id);
+    const fileName = doc.file_name || `file_${Date.now()}`;
+    const savePath = path.join(workingDir, fileName);
+
+    const url = `https://api.telegram.org/file/bot${BOT_TOKEN}/${file.file_path}`;
+    const https = require("https");
+    const fileStream = fs.createWriteStream(savePath);
+    https.get(url, (res) => {
+      res.pipe(fileStream);
+      fileStream.on("finish", () => {
+        fileStream.close();
+        bot.sendMessage(chatId, `📎 저장됨: \`${fileName}\``, { parse_mode: "Markdown" });
+        log(`[UPLOAD] 파일 저장: ${savePath}`);
+      });
+    });
+  } catch (err) {
+    await bot.sendMessage(chatId, `❌ 파일 저장 실패: ${err.message}`);
+  }
+});
+
+// ─── 일반 메시지 처리 ─────────────────────────────────────────────
 bot.on("message", async (msg) => {
   // 명령어는 무시 (위의 핸들러에서 처리)
   if (msg.text && msg.text.startsWith("/")) return;
+  // 파일/사진은 위의 핸들러에서 처리
+  if (msg.photo || msg.document) return;
   if (!msg.text) return;
   if (!isAuthorized(msg)) {
     if (!AUTHORIZED_USER_ID) {
@@ -1346,20 +1657,32 @@ bot.on("message", async (msg) => {
     return;
   }
 
-  // 디렉토리 선택 대기 중 — 경로면 변경, 아니면 기존 디렉토리로 바로 작업 시작
-  if (needsDirectoryChoice) {
-    const resolved = resolveDirectory(prompt);
-    needsDirectoryChoice = false;
+  // 대기 중인 명령어 처리 (인자 없이 보내진 /setdir, /read, /preview)
+  if (pendingCommand) {
+    const cmd = pendingCommand;
+    pendingCommand = null;
 
-    if (resolved) {
-      workingDir = resolved;
-      saveState();
-      await bot.sendMessage(chatId, `📂 작업 디렉토리: \`${workingDir}\``, { parse_mode: "Markdown" });
-      log(`[DIR] ${workingDir}`);
-      return; // 디렉토리만 변경, 다음 메시지 대기
+    if (cmd.type === "setdir") {
+      // resolveDirectory로 자연어 해석
+      const resolved = resolveDirectory(prompt);
+      if (resolved) {
+        workingDir = resolved;
+        saveState();
+        if (expressServer) { stopPreviewServer(); startPreviewServer(); }
+        await bot.sendMessage(chatId, `📂 작업 디렉토리 변경됨: \`${workingDir}\``, { parse_mode: "Markdown" });
+        log(`[DIR] ${workingDir}`);
+      } else {
+        await bot.sendMessage(chatId, `❌ 디렉토리를 찾을 수 없습니다: \`${prompt}\``, { parse_mode: "Markdown" });
+      }
+      return;
     }
-    // 디렉토리가 아님 → 기존 디렉토리 유지하고 이 메시지를 Claude에 전달
-    log(`[DIR] 기존 유지: ${workingDir}`);
+
+    if (cmd.type === "read" || cmd.type === "preview") {
+      // 명령어 + 인자로 재구성해서 다시 처리
+      const fakeMsg = { ...msg, text: `/${cmd.type} ${prompt}` };
+      bot.emit("message", fakeMsg);
+      return;
+    }
   }
 
   // 처리 중이면 대기열에 추가
@@ -1453,12 +1776,54 @@ async function gracefulShutdown(signal) {
   }
 
   bot.stopPolling();
+  releaseLock();
   process.exit(0);
 }
 
 process.on("SIGINT", () => gracefulShutdown("SIGINT"));
 process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
 process.on("SIGHUP", () => gracefulShutdown("SIGHUP"));
+process.on("exit", releaseLock);
+
+// ─── 시작 알림 ────────────────────────────────────────────────────
+async function sendStartupMessage() {
+  if (!AUTHORIZED_USER_ID) return;
+
+  try {
+    // 이어받을 수 있는 세션 확인
+    const sessions = findRecentSessions(workingDir, 1);
+    const recent = sessions[0];
+
+    let text = `🟢 봇이 켜졌습니다. [${COMPUTER_NAME}]\n📂 \`${workingDir}\``;
+
+    if (recent) {
+      const ago = Date.now() - recent.mtime.getTime();
+      const mins = Math.floor(ago / 60000);
+      const timeAgo = mins < 60
+        ? `${mins}분 전`
+        : mins < 1440
+          ? `${Math.floor(mins / 60)}시간 전`
+          : `${Math.floor(mins / 1440)}일 전`;
+      text += `\n\n💡 이어받을 수 있는 세션 (${timeAgo}):`;
+      if (recent.preview) text += `\n💬 ${recent.preview}`;
+    }
+
+    await bot.sendMessage(AUTHORIZED_USER_ID, text, { parse_mode: "Markdown" });
+
+    // 권한 모드 + 이어받기 버튼
+    const buttons = [[
+      { text: "🔒 안전 모드", callback_data: "perm_safe" },
+      { text: "⚡ 전체 허용", callback_data: "perm_skip" },
+    ]];
+    if (recent) {
+      buttons.push([{ text: "🔄 이전 세션 이어받기", callback_data: "resume_startup" }]);
+    }
+
+    await bot.sendMessage(AUTHORIZED_USER_ID, "권한 모드를 선택하세요:", {
+      reply_markup: { inline_keyboard: buttons },
+    });
+  } catch {}
+}
 
 // ─── SDK 로드 후 시작 ────────────────────────────────────────────
-loadSDK();
+loadSDK().then(() => sendStartupMessage());
