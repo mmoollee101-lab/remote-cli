@@ -1011,32 +1011,22 @@ bot.on("callback_query", async (query) => {
     await bot.answerCallbackQuery(query.id);
     try { await bot.deleteMessage(chatId, query.message.message_id); } catch {}
 
-    if (query.data === "quick_continue") {
+    if (query.data === "quick_cleanup") {
+      // 봇이 보낸 최근 메시지들 삭제 (최대 50개)
+      await bot.sendMessage(chatId, "🗑 대화를 정리하는 중...");
+      // 사용자가 직접 Clear History를 사용하도록 안내
+      await bot.sendMessage(chatId, "텔레그램에서 채팅방 상단 `...` → `Clear History`로 전체 정리할 수 있어요.\n\n봇 세션은 유지됩니다.", { parse_mode: "Markdown" });
+    } else if (query.data === "quick_commit") {
       if (isProcessing) {
         await bot.sendMessage(chatId, "⏳ 이미 처리 중입니다.");
       } else {
-        processMessage(chatId, "이어서 해줘");
+        processMessage(chatId, "변경사항을 확인하고 적절한 커밋 메시지로 커밋해줘");
       }
-    } else if (query.data === "quick_new") {
-      sessionId = null;
-      skipPermissions = false;
-      needsPermissionChoice = true;
-      await bot.sendMessage(chatId, `🆕 새 세션이 시작되었습니다.\n📂 \`${workingDir}\`\n\n권한 모드를 선택하세요:`, {
-        parse_mode: "Markdown",
-        reply_markup: {
-          inline_keyboard: [[
-            { text: "🔒 안전 모드 (기본)", callback_data: "perm_safe" },
-            { text: "⚡ 전체 허용", callback_data: "perm_skip" },
-          ]],
-        },
-      });
-    } else if (query.data === "quick_files") {
-      try {
-        const entries = fs.readdirSync(workingDir, { withFileTypes: true });
-        const list = entries.map((e) => `${e.isDirectory() ? "📁" : "📄"} ${e.name}`).join("\n");
-        await sendLongMessage(chatId, `📂 \`${workingDir}\`\n\n${list || "(빈 디렉토리)"}`, { parse_mode: "Markdown" });
-      } catch (err) {
-        await bot.sendMessage(chatId, `❌ 오류: ${err.message}`);
+    } else if (query.data === "quick_summary") {
+      if (isProcessing) {
+        await bot.sendMessage(chatId, "⏳ 이미 처리 중입니다.");
+      } else {
+        processMessage(chatId, "방금 작업한 내용을 간단히 요약해줘");
       }
     }
     return;
@@ -1572,9 +1562,9 @@ async function processMessage(chatId, prompt) {
     await bot.sendMessage(chatId, "⚡", {
       reply_markup: {
         inline_keyboard: [[
-          { text: "▶️ 이어서", callback_data: "quick_continue" },
-          { text: "🆕 새 세션", callback_data: "quick_new" },
-          { text: "📂 파일목록", callback_data: "quick_files" },
+          { text: "🗑 대화 정리", callback_data: "quick_cleanup" },
+          { text: "💾 커밋", callback_data: "quick_commit" },
+          { text: "📋 요약", callback_data: "quick_summary" },
         ]],
       },
     });
