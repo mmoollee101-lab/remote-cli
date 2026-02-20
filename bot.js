@@ -703,7 +703,7 @@ async function runClaude(prompt, chatId) {
                     chat_id: chatId, message_id: progressMsgId, parse_mode: "Markdown",
                   });
                 } else {
-                  const sent = await bot.sendMessage(chatId, `${icon} ${block.name}${detail}`, { parse_mode: "Markdown" });
+                  const sent = await bot.sendMessage(chatId, `${icon} ${block.name}${detail}`, { parse_mode: "Markdown", disable_notification: true });
                   progressMsgId = sent.message_id;
                 }
               } catch {}
@@ -1013,18 +1013,18 @@ bot.on("callback_query", async (query) => {
 
     if (query.data === "quick_cleanup") {
       // 봇이 보낸 최근 메시지들 삭제 (최대 50개)
-      await bot.sendMessage(chatId, "🗑 대화를 정리하는 중...");
+      await bot.sendMessage(chatId, "🗑 대화를 정리하는 중...", { disable_notification: true });
       // 사용자가 직접 Clear History를 사용하도록 안내
       await bot.sendMessage(chatId, "텔레그램에서 채팅방 상단 `...` → `Clear History`로 전체 정리할 수 있어요.\n\n봇 세션은 유지됩니다.", { parse_mode: "Markdown" });
     } else if (query.data === "quick_commit") {
       if (isProcessing) {
-        await bot.sendMessage(chatId, "⏳ 이미 처리 중입니다.");
+        await bot.sendMessage(chatId, "⏳ 이미 처리 중입니다.", { disable_notification: true });
       } else {
         processMessage(chatId, "변경사항을 확인하고 적절한 커밋 메시지로 커밋하고 푸시해줘");
       }
     } else if (query.data === "quick_summary") {
       if (isProcessing) {
-        await bot.sendMessage(chatId, "⏳ 이미 처리 중입니다.");
+        await bot.sendMessage(chatId, "⏳ 이미 처리 중입니다.", { disable_notification: true });
       } else {
         processMessage(chatId, "방금 작업한 내용을 간단히 요약해줘");
       }
@@ -1595,6 +1595,26 @@ async function processMessage(chatId, prompt) {
   }
 }
 
+// ─── 업로드 헬퍼 ─────────────────────────────────────────────────
+function ensureUploadsDir() {
+  const uploadsDir = path.join(workingDir, "uploads");
+  if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+  return uploadsDir;
+}
+
+function cleanupUploads(uploadsDir, maxFiles = 10) {
+  try {
+    const files = fs.readdirSync(uploadsDir)
+      .map(f => ({ name: f, time: fs.statSync(path.join(uploadsDir, f)).mtimeMs }))
+      .sort((a, b) => a.time - b.time);
+    while (files.length > maxFiles) {
+      const old = files.shift();
+      fs.unlinkSync(path.join(uploadsDir, old.name));
+      log(`[UPLOAD] 오래된 파일 삭제: ${old.name}`);
+    }
+  } catch {}
+}
+
 // ─── 파일/사진 업로드 처리 ────────────────────────────────────────
 bot.on("photo", async (msg) => {
   if (!isAuthorized(msg)) return;
@@ -1608,7 +1628,8 @@ bot.on("photo", async (msg) => {
     const fileName = caption
       ? caption.replace(/[<>:"/\\|?*]/g, "_") + ext
       : `photo_${Date.now()}${ext}`;
-    const savePath = path.join(workingDir, fileName);
+    const uploadsDir = ensureUploadsDir();
+    const savePath = path.join(uploadsDir, fileName);
 
     const url = `https://api.telegram.org/file/bot${BOT_TOKEN}/${file.file_path}`;
     const https = require("https");
@@ -1617,7 +1638,8 @@ bot.on("photo", async (msg) => {
       res.pipe(fileStream);
       fileStream.on("finish", () => {
         fileStream.close();
-        bot.sendMessage(chatId, `📷 저장됨: \`${fileName}\``, { parse_mode: "Markdown" });
+        cleanupUploads(uploadsDir);
+        bot.sendMessage(chatId, `📷 저장됨: \`uploads/${fileName}\``, { parse_mode: "Markdown" });
         log(`[UPLOAD] 사진 저장: ${savePath}`);
       });
     });
@@ -1634,7 +1656,8 @@ bot.on("document", async (msg) => {
   try {
     const file = await bot.getFile(doc.file_id);
     const fileName = doc.file_name || `file_${Date.now()}`;
-    const savePath = path.join(workingDir, fileName);
+    const uploadsDir = ensureUploadsDir();
+    const savePath = path.join(uploadsDir, fileName);
 
     const url = `https://api.telegram.org/file/bot${BOT_TOKEN}/${file.file_path}`;
     const https = require("https");
@@ -1643,7 +1666,8 @@ bot.on("document", async (msg) => {
       res.pipe(fileStream);
       fileStream.on("finish", () => {
         fileStream.close();
-        bot.sendMessage(chatId, `📎 저장됨: \`${fileName}\``, { parse_mode: "Markdown" });
+        cleanupUploads(uploadsDir);
+        bot.sendMessage(chatId, `📎 저장됨: \`uploads/${fileName}\``, { parse_mode: "Markdown" });
         log(`[UPLOAD] 파일 저장: ${savePath}`);
       });
     });
@@ -1724,7 +1748,7 @@ bot.on("message", async (msg) => {
   // 처리 중이면 대기열에 추가
   if (isProcessing) {
     messageQueue.push({ chatId, prompt });
-    await bot.sendMessage(chatId, `📋 대기열에 추가됨 (${messageQueue.length}번째)`);
+    await bot.sendMessage(chatId, `📋 대기열에 추가됨 (${messageQueue.length}번째)`, { disable_notification: true });
     return;
   }
 
