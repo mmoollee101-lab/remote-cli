@@ -1020,7 +1020,7 @@ bot.on("callback_query", async (query) => {
       if (isProcessing) {
         await bot.sendMessage(chatId, "⏳ 이미 처리 중입니다.");
       } else {
-        processMessage(chatId, "변경사항을 확인하고 적절한 커밋 메시지로 커밋해줘");
+        processMessage(chatId, "변경사항을 확인하고 적절한 커밋 메시지로 커밋하고 푸시해줘");
       }
     } else if (query.data === "quick_summary") {
       if (isProcessing) {
@@ -1563,7 +1563,7 @@ async function processMessage(chatId, prompt) {
       reply_markup: {
         inline_keyboard: [[
           { text: "🗑 대화 정리", callback_data: "quick_cleanup" },
-          { text: "💾 커밋", callback_data: "quick_commit" },
+          { text: "💾 커밋 푸시", callback_data: "quick_commit" },
           { text: "📋 요약", callback_data: "quick_summary" },
         ]],
       },
