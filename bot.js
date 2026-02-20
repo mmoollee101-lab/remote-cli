@@ -121,6 +121,7 @@ bot.setMyCommands([
   { command: "preview", description: "파일 미리보기 (HTML/이미지/스크립트)" },
   { command: "tunnel", description: "터널 관리 (status/start/stop)" },
   { command: "resume", description: "터미널 세션 이어받기" },
+  { command: "restart", description: "봇 재시작" },
 ]);
 
 log("[INFO] 봇이 시작되었습니다. 텔레그램에서 메시지를 보내보세요.");
@@ -313,6 +314,38 @@ function resolveDirectory(description) {
     }
   }
 
+  // 토큰 끝에 붙은 한국어 조사 제거 (긴 것부터 시도)
+  const SUFFIXES = ["에서의", "으로의", "이라는", "에서", "으로", "라는", "이라고", "라고", "의", "에", "로", "을", "를", "이", "가", "은", "는", "도"];
+  for (let i = tokens.length - 1; i >= 0; i--) {
+    for (const sfx of SUFFIXES) {
+      if (tokens[i].endsWith(sfx) && tokens[i].length > sfx.length) {
+        tokens[i] = tokens[i].slice(0, -sfx.length);
+        break;
+      }
+    }
+    if (tokens[i].length < 1 || KOREAN_STOPWORDS.has(tokens[i])) tokens.splice(i, 1);
+  }
+
+  // 편집 거리 계산 (Levenshtein distance)
+  function editDistance(a, b) {
+    if (a.length === 0) return b.length;
+    if (b.length === 0) return a.length;
+    const dp = Array.from({ length: a.length + 1 }, () => Array(b.length + 1).fill(0));
+    for (let i = 0; i <= a.length; i++) dp[i][0] = i;
+    for (let j = 0; j <= b.length; j++) dp[0][j] = j;
+    for (let i = 1; i <= a.length; i++) {
+      for (let j = 1; j <= b.length; j++) {
+        dp[i][j] = Math.min(
+          dp[i - 1][j] + 1,
+          dp[i][j - 1] + 1,
+          dp[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)
+        );
+      }
+    }
+    return dp[a.length][b.length];
+  }
+
+  // 정확한 매칭 먼저 시도
   for (const base of basePaths) {
     if (!fs.existsSync(base)) continue;
     try {
@@ -329,7 +362,31 @@ function resolveDirectory(description) {
     } catch {}
   }
 
-  return null;
+  // 유사도 매칭 (오타 허용 - 편집 거리 기반)
+  let bestMatch = null;
+  let bestDist = Infinity;
+  for (const base of basePaths) {
+    if (!fs.existsSync(base)) continue;
+    try {
+      const entries = fs.readdirSync(base, { withFileTypes: true });
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        const name = entry.name.toLowerCase();
+        for (const token of tokens) {
+          if (token.length < 2) continue;
+          const dist = editDistance(name, token);
+          // 허용 거리: 길이 3 이하면 1, 그 외에는 2
+          const maxDist = token.length <= 3 ? 1 : 2;
+          if (dist <= maxDist && dist < bestDist) {
+            bestDist = dist;
+            bestMatch = path.join(base, entry.name);
+          }
+        }
+      }
+    } catch {}
+  }
+
+  return bestMatch;
 }
 
 // ─── 세션 탐색 (터미널 세션 이어받기) ─────────────────────────────
@@ -1220,8 +1277,14 @@ bot.onText(/\/setdir(?:\s+(.+))?/, async (msg, match) => {
     return;
   }
 
+  const dirChanged = workingDir !== resolved;
   workingDir = resolved;
   saveState();
+  // 디렉토리가 바뀌면 세션 리셋 (cwd 불일치로 exit code 1 방지)
+  if (dirChanged && sessionId) {
+    sessionId = null;
+    log("[DIR] 디렉토리 변경 → 세션 리셋");
+  }
   // 서버가 실행 중이면 재시작 (새 디렉토리 서빙)
   if (expressServer) {
     stopPreviewServer();
@@ -1250,6 +1313,16 @@ bot.onText(/\/cancel/, async (msg) => {
   } else {
     await bot.sendMessage(chatId, "실행 중인 작업이 없습니다.");
   }
+});
+
+// /restart - 봇 재시작 (exit code 82 → launcher가 감지하여 재시작)
+bot.onText(/\/restart/, async (msg) => {
+  if (!isAuthorized(msg)) return;
+  const chatId = msg.chat.id;
+  await bot.sendMessage(chatId, "🔄 봇을 재시작합니다...");
+  bot.stopPolling();
+  releaseLock();
+  process.exit(82);
 });
 
 // /files - 현재 디렉토리 파일 목록
@@ -1596,10 +1669,10 @@ async function processMessage(chatId, prompt) {
 }
 
 // ─── 업로드 헬퍼 ─────────────────────────────────────────────────
+const UPLOADS_DIR = path.join(process.cwd(), "uploads");
 function ensureUploadsDir() {
-  const uploadsDir = path.join(workingDir, "uploads");
-  if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
-  return uploadsDir;
+  if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+  return UPLOADS_DIR;
 }
 
 function cleanupUploads(uploadsDir, maxFiles = 10) {
@@ -1639,8 +1712,12 @@ bot.on("photo", async (msg) => {
       fileStream.on("finish", () => {
         fileStream.close();
         cleanupUploads(uploadsDir);
-        bot.sendMessage(chatId, `📷 저장됨: \`uploads/${fileName}\``, { parse_mode: "Markdown" });
         log(`[UPLOAD] 사진 저장: ${savePath}`);
+        // Claude 세션에 이미지 경로 + 캡션 전달
+        const prompt = caption
+          ? `이미지를 보내드립니다. 절대경로: ${savePath}\n\n${caption}`
+          : `이미지를 보내드립니다. 절대경로: ${savePath}\n\n이 이미지를 확인해주세요.`;
+        processMessage(chatId, prompt);
       });
     });
   } catch (err) {
@@ -1652,6 +1729,7 @@ bot.on("document", async (msg) => {
   if (!isAuthorized(msg)) return;
   const chatId = msg.chat.id;
   const doc = msg.document;
+  const caption = msg.caption || "";
 
   try {
     const file = await bot.getFile(doc.file_id);
@@ -1667,8 +1745,12 @@ bot.on("document", async (msg) => {
       fileStream.on("finish", () => {
         fileStream.close();
         cleanupUploads(uploadsDir);
-        bot.sendMessage(chatId, `📎 저장됨: \`uploads/${fileName}\``, { parse_mode: "Markdown" });
         log(`[UPLOAD] 파일 저장: ${savePath}`);
+        // Claude 세션에 파일 경로 + 캡션 전달
+        const prompt = caption
+          ? `파일을 보내드립니다. 절대경로: ${savePath}\n\n${caption}`
+          : `파일을 보내드립니다. 절대경로: ${savePath}\n\n이 파일을 확인해주세요.`;
+        processMessage(chatId, prompt);
       });
     });
   } catch (err) {
@@ -1726,8 +1808,13 @@ bot.on("message", async (msg) => {
       // resolveDirectory로 자연어 해석
       const resolved = resolveDirectory(prompt);
       if (resolved) {
+        const dirChanged = workingDir !== resolved;
         workingDir = resolved;
         saveState();
+        if (dirChanged && sessionId) {
+          sessionId = null;
+          log("[DIR] 디렉토리 변경 → 세션 리셋");
+        }
         if (expressServer) { stopPreviewServer(); startPreviewServer(); }
         await bot.sendMessage(chatId, `📂 작업 디렉토리 변경됨: \`${workingDir}\``, { parse_mode: "Markdown" });
         log(`[DIR] ${workingDir}`);

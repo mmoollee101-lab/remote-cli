@@ -78,12 +78,22 @@ class TrayLauncher
         trayIcon.ContextMenuStrip = menu;
         trayIcon.DoubleClick += (s, e) => OpenLog();
 
-        // Watch for bot crash
+        // Watch for bot crash or restart request (exit code 82)
         Timer timer = new Timer();
         timer.Interval = 2000;
         timer.Tick += (s, e) =>
         {
-            if (botProcess.HasExited) StopBot();
+            if (botProcess != null && botProcess.HasExited)
+            {
+                if (botProcess.ExitCode == 82)
+                {
+                    RestartBot(dir, botJs);
+                }
+                else
+                {
+                    StopBot();
+                }
+            }
         };
         timer.Start();
 
