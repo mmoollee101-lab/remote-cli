@@ -1114,6 +1114,16 @@ bot.on("callback_query", async (query) => {
     return;
   }
 
+  // 사진만 보내기 버튼
+  if (query.data === "photo_only") {
+    await bot.answerCallbackQuery(query.id);
+    try { await bot.deleteMessage(chatId, query.message.message_id); } catch {}
+    if (pendingPhoto) {
+      processPendingPhoto(null);
+    }
+    return;
+  }
+
   // Preview 프로세스 종료 버튼
   if (query.data === "preview_kill") {
     await bot.answerCallbackQuery(query.id);
@@ -1668,6 +1678,9 @@ async function processMessage(chatId, prompt) {
   }
 }
 
+// ─── 대기 중인 사진 (캡션 없이 보낸 사진 → 후속 텍스트 대기) ───
+let pendingPhoto = null; // { chatId, savePath }
+
 // ─── 업로드 헬퍼 ─────────────────────────────────────────────────
 const UPLOADS_DIR = path.join(process.cwd(), "uploads");
 function ensureUploadsDir() {
@@ -1689,6 +1702,34 @@ function cleanupUploads(uploadsDir, maxFiles = 10) {
 }
 
 // ─── 파일/사진 업로드 처리 ────────────────────────────────────────
+
+function downloadTelegramFile(fileInfo, savePath) {
+  return new Promise((resolve, reject) => {
+    const url = `https://api.telegram.org/file/bot${BOT_TOKEN}/${fileInfo.file_path}`;
+    const https = require("https");
+    const fileStream = fs.createWriteStream(savePath);
+    https.get(url, (res) => {
+      res.pipe(fileStream);
+      fileStream.on("finish", () => {
+        fileStream.close();
+        resolve();
+      });
+      fileStream.on("error", reject);
+    }).on("error", reject);
+  });
+}
+
+function processPendingPhoto(textPrompt) {
+  if (!pendingPhoto) return false;
+  const { chatId, savePath } = pendingPhoto;
+  pendingPhoto = null;
+  const prompt = textPrompt
+    ? `이미지를 보내드립니다. 절대경로: ${savePath}\n\n${textPrompt}`
+    : `이미지를 보내드립니다. 절대경로: ${savePath}\n\n이 이미지를 확인해주세요.`;
+  processMessage(chatId, prompt);
+  return true;
+}
+
 bot.on("photo", async (msg) => {
   if (!isAuthorized(msg)) return;
   const chatId = msg.chat.id;
@@ -1704,22 +1745,26 @@ bot.on("photo", async (msg) => {
     const uploadsDir = ensureUploadsDir();
     const savePath = path.join(uploadsDir, fileName);
 
-    const url = `https://api.telegram.org/file/bot${BOT_TOKEN}/${file.file_path}`;
-    const https = require("https");
-    const fileStream = fs.createWriteStream(savePath);
-    https.get(url, (res) => {
-      res.pipe(fileStream);
-      fileStream.on("finish", () => {
-        fileStream.close();
-        cleanupUploads(uploadsDir);
-        log(`[UPLOAD] 사진 저장: ${savePath}`);
-        // Claude 세션에 이미지 경로 + 캡션 전달
-        const prompt = caption
-          ? `이미지를 보내드립니다. 절대경로: ${savePath}\n\n${caption}`
-          : `이미지를 보내드립니다. 절대경로: ${savePath}\n\n이 이미지를 확인해주세요.`;
-        processMessage(chatId, prompt);
+    await downloadTelegramFile(file, savePath);
+    cleanupUploads(uploadsDir);
+    log(`[UPLOAD] 사진 저장: ${savePath}`);
+
+    if (caption) {
+      // 캡션이 있으면 즉시 처리
+      const prompt = `이미지를 보내드립니다. 절대경로: ${savePath}\n\n${caption}`;
+      processMessage(chatId, prompt);
+    } else {
+      // 캡션이 없으면 후속 텍스트 메시지 대기
+      pendingPhoto = { chatId, savePath };
+      await bot.sendMessage(chatId, `📷 사진 수신 완료. 메시지를 입력하면 사진과 함께 전달됩니다.`, {
+        disable_notification: true,
+        reply_markup: {
+          inline_keyboard: [[
+            { text: "📷 사진만 보내기", callback_data: "photo_only" },
+          ]],
+        },
       });
-    });
+    }
   } catch (err) {
     await bot.sendMessage(chatId, `❌ 사진 저장 실패: ${err.message}`);
   }
@@ -1830,6 +1875,12 @@ bot.on("message", async (msg) => {
       bot.emit("message", fakeMsg);
       return;
     }
+  }
+
+  // 대기 중인 사진이 있으면 텍스트와 합쳐서 처리
+  if (pendingPhoto) {
+    processPendingPhoto(prompt);
+    return;
   }
 
   // 처리 중이면 대기열에 추가
