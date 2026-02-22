@@ -5,6 +5,7 @@ using System.IO;
 using System.Net;
 using System.Text;
 using System.Windows.Forms;
+using Microsoft.Win32;
 
 class TrayLauncher
 {
@@ -15,6 +16,7 @@ class TrayLauncher
     static string chatId;
     static string computerName;
     static System.Threading.Mutex appMutex;
+    static readonly string AutoStartKey = "ClaudeTelegramBot";
 
     [STAThread]
     static void Main()
@@ -71,6 +73,15 @@ class TrayLauncher
         menu.Items.Add("📖 설명서", null, (s, e) => ShowGuide());
         menu.Items.Add("📋 로그 보기", null, (s, e) => OpenLog());
         menu.Items.Add("📂 .env 편집", null, (s, e) => OpenEnv(dir));
+        menu.Items.Add(new ToolStripSeparator());
+        ToolStripMenuItem autoStartItem = new ToolStripMenuItem("🚀 윈도우 시작 시 자동 실행");
+        autoStartItem.Checked = IsAutoStartEnabled();
+        autoStartItem.Click += (s, e) =>
+        {
+            ToggleAutoStart();
+            autoStartItem.Checked = IsAutoStartEnabled();
+        };
+        menu.Items.Add(autoStartItem);
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("🔄 재시작", null, (s, e) => RestartBot(dir, botJs));
         menu.Items.Add("❌ 종료", null, (s, e) => StopBot());
@@ -295,6 +306,39 @@ class TrayLauncher
             if (key == "AUTHORIZED_USER_ID") chatId = val;
             if (key == "COMPUTER_NAME") computerName = val;
         }
+    }
+
+    static bool IsAutoStartEnabled()
+    {
+        try
+        {
+            using (RegistryKey key = Registry.CurrentUser.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Run", false))
+            {
+                return key != null && key.GetValue(AutoStartKey) != null;
+            }
+        }
+        catch { return false; }
+    }
+
+    static void ToggleAutoStart()
+    {
+        try
+        {
+            using (RegistryKey key = Registry.CurrentUser.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Run", true))
+            {
+                if (key == null) return;
+                if (IsAutoStartEnabled())
+                {
+                    key.DeleteValue(AutoStartKey, false);
+                }
+                else
+                {
+                    string exePath = System.Reflection.Assembly.GetExecutingAssembly().Location;
+                    key.SetValue(AutoStartKey, "\"" + exePath + "\"");
+                }
+            }
+        }
+        catch { }
     }
 
     static void SendTelegram(string text)
