@@ -115,7 +115,7 @@ class TrayLauncher
     {
         Form guide = new Form();
         guide.Text = "Claude Telegram Bot - 설명서";
-        guide.Size = new Size(600, 620);
+        guide.Size = new Size(600, 750);
         guide.StartPosition = FormStartPosition.CenterScreen;
         guide.FormBorderStyle = FormBorderStyle.FixedDialog;
         guide.MaximizeBox = false;
@@ -182,12 +182,30 @@ class TrayLauncher
             "  /read      파일 내용 읽기\r\n" +
             "  /preview   파일 미리보기 (HTML/이미지/스크립트)\r\n" +
             "  /tunnel    터널 관리 (status/start/stop)\r\n" +
+            "  /restart   봇 재시작\r\n" +
+            "\r\n" +
+            "\r\n" +
+            "[사진/파일 보내기]\r\n" +
+            "\r\n" +
+            "  사진에 캡션을 달면 즉시 Claude에 전달됩니다.\r\n" +
+            "  캡션 없이 사진만 보내면 후속 메시지를 기다립니다.\r\n" +
+            "  → 메시지 입력 시 사진+텍스트가 함께 전달\r\n" +
+            "  → '사진만 보내기' 버튼으로 사진만 전달 가능\r\n" +
             "\r\n" +
             "\r\n" +
             "[권한 모드]\r\n" +
             "\r\n" +
             "  안전 모드: 파일 읽기만 자동 허용, 나머지는 승인 필요\r\n" +
             "  전체 허용: 모든 도구 사용 자동 허용\r\n" +
+            "\r\n" +
+            "\r\n" +
+            "[트레이 메뉴]\r\n" +
+            "\r\n" +
+            "  - 설명서: 이 화면\r\n" +
+            "  - 로그 보기: bot.log 열기\r\n" +
+            "  - .env 편집: 환경변수 설정\r\n" +
+            "  - 윈도우 시작 시 자동 실행: 부팅 시 자동 시작 토글\r\n" +
+            "  - 재시작 / 종료\r\n" +
             "\r\n" +
             "\r\n" +
             "[트러블슈팅]\r\n" +
@@ -207,7 +225,8 @@ class TrayLauncher
         // 섹션 제목 볼드
         string text = rtb.Text;
         string[] sections = { "[사전 요구사항]", "[설치 방법]", "[.env 설정]",
-            "[여러 컴퓨터에서 사용하기]", "[텔레그램 명령어]", "[권한 모드]", "[트러블슈팅]" };
+            "[여러 컴퓨터에서 사용하기]", "[텔레그램 명령어]", "[사진/파일 보내기]",
+            "[권한 모드]", "[트레이 메뉴]", "[트러블슈팅]" };
         foreach (string sec in sections)
         {
             int idx = text.IndexOf(sec);
