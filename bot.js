@@ -498,11 +498,12 @@ function askViaTelegram(question, signal) {
       signal.addEventListener("abort", onAbort, { once: true });
     }
 
-    // 선택지를 인라인 키보드로 변환 (2열 배치)
+    // 선택지를 인라인 키보드로 변환 (2열 배치) + "기타" 버튼
     const buttons = question.options.map((opt, i) => ({
       text: opt.label,
       callback_data: `sdk_ask_${i}`,
     }));
+    buttons.push({ text: "✏️ 직접 입력", callback_data: "sdk_ask_other" });
     const rows = [];
     for (let i = 0; i < buttons.length; i += 2) {
       rows.push(buttons.slice(i, i + 2));
@@ -510,6 +511,7 @@ function askViaTelegram(question, signal) {
 
     pendingSdkAsk = {
       resolve: (answer) => {
+        pendingSdkAsk = null;
         if (signal) signal.removeEventListener("abort", onAbort);
         resolve(answer);
       },
@@ -1217,8 +1219,18 @@ bot.on("callback_query", async (query) => {
     return;
   } else if (query.data.startsWith("sdk_ask_") && pendingSdkAsk) {
     // AskUserQuestion 응답 처리
-    const idx = parseInt(query.data.replace("sdk_ask_", ""), 10);
     const ctx = pendingSdkAsk;
+
+    // "직접 입력" 버튼 → 다음 텍스트 메시지를 응답으로 대기
+    if (query.data === "sdk_ask_other") {
+      await bot.answerCallbackQuery(query.id);
+      ctx.waitingTextInput = true;
+      ctx.askMessageId = query.message.message_id;
+      await bot.sendMessage(chatId, "✏️ 답변을 텍스트로 입력해주세요:");
+      return;
+    }
+
+    const idx = parseInt(query.data.replace("sdk_ask_", ""), 10);
     const selected = ctx.options[idx];
 
     if (!selected) {
@@ -1226,6 +1238,7 @@ bot.on("callback_query", async (query) => {
       return;
     }
 
+    pendingSdkAsk = null;
     await bot.answerCallbackQuery(query.id);
     await bot.editMessageText(
       `❓ ${ctx.question}\n➡️ ${selected.label}`,
@@ -1875,6 +1888,22 @@ bot.on("message", async (msg) => {
       bot.emit("message", fakeMsg);
       return;
     }
+  }
+
+  // AskUserQuestion "직접 입력" 대기 중이면 텍스트를 응답으로 처리
+  if (pendingSdkAsk && pendingSdkAsk.waitingTextInput) {
+    const ctx = pendingSdkAsk;
+    pendingSdkAsk = null;
+    // 원래 질문 메시지 업데이트
+    if (ctx.askMessageId) {
+      bot.editMessageText(
+        `❓ ${ctx.question}\n➡️ ${prompt}`,
+        { chat_id: chatId, message_id: ctx.askMessageId }
+      ).catch(() => {});
+    }
+    log(`[ASK] 직접 입력 응답: ${prompt}`);
+    ctx.resolve(prompt);
+    return;
   }
 
   // 대기 중인 사진이 있으면 텍스트와 합쳐서 처리
