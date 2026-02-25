@@ -31,10 +31,11 @@ Anthropic's official [Remote Control](https://code.claude.com/docs/en/remote-con
 - **Progress Notifications**: Periodic updates during long-running tasks (every 2 minutes)
 - **Security**: Authorized user only + `/lock` PIN-based bot locking
 - **Photo/File Upload**: Send screenshots or documents directly to Claude via Telegram
+- **Multi-Language (i18n)**: Full Korean/English support — switch via tray menu, all UI strings translated
 - **Smart Directory Switching**: Natural language directory resolution (Korean supported)
 - **File Preview**: HTML preview via Cloudflare tunnel, image/script execution
 - **Table Rendering**: Auto-converts markdown tables to monospace code blocks for Telegram
-- **Tray App Launcher**: Windows system tray icon with auto-start on boot
+- **Tray App Launcher**: Windows system tray icon with auto-start on boot, language switching
 - **Network Resilience**: Auto-reconnect with exponential backoff on network drops
 
 ## Commands

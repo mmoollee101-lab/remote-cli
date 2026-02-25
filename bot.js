@@ -98,6 +98,415 @@ const AUTHORIZED_USER_ID = process.env.AUTHORIZED_USER_ID
 
 const COMPUTER_NAME = process.env.COMPUTER_NAME || os.hostname();
 
+// ─── i18n ────────────────────────────────────────────────────────
+let currentLang = "ko"; // loadState()에서 덮어씀
+
+function getLocale() {
+  return currentLang === "ko" ? "ko-KR" : "en-US";
+}
+
+const STRINGS = {
+  ko: {
+    // setMyCommands
+    cmd_start: "봇 시작 + 유저 ID 안내",
+    cmd_new: "새 세션 시작",
+    cmd_status: "현재 상태 (세션, 디렉토리)",
+    cmd_setdir: "작업 디렉토리 변경",
+    cmd_cancel: "현재 작업 취소",
+    cmd_files: "파일 목록 보기",
+    cmd_read: "파일 내용 읽기",
+    cmd_preview: "파일 미리보기 (HTML/이미지/스크립트)",
+    cmd_tunnel: "터널 관리 (status/start/stop)",
+    cmd_resume: "터미널 세션 이어받기",
+    cmd_restart: "봇 재시작",
+    cmd_plan: "다음 메시지에 플랜 모드 적용",
+    cmd_lock: "PIN으로 봇 잠금",
+    cmd_unlock: "잠금 해제",
+
+    // /start
+    start_no_auth: "안녕하세요, {{name}}님!\n\n당신의 Telegram 유저 ID: `{{id}}`\n\n.env 파일에 다음을 추가한 뒤 봇을 재시작하세요:\n`AUTHORIZED_USER_ID={{id}}`",
+    start_unauthorized: "⛔ 인증되지 않은 사용자입니다.",
+    start_welcome: "✅ 인증 완료! Claude Code Remote Controller 준비됨.\n\n세션 ID: `{{session}}`\n작업 디렉토리: `{{dir}}`\n\n명령어 목록:\n/new - 새 세션 시작\n/resume - 터미널 세션 이어받기\n/plan - 다음 메시지에 플랜 모드 적용\n/status - 현재 상태\n/setdir <경로> - 작업 디렉토리 변경\n/cancel - 현재 작업 취소\n/files - 파일 목록\n/read <파일> - 파일 내용 읽기\n/preview <파일> - 파일 미리보기\n/tunnel - 터널 관리\n/lock <PIN> - 봇 잠금\n/unlock <PIN> - 잠금 해제\n\n일반 메시지를 보내면 Claude Code에 전달됩니다.",
+
+    // /new + session handoff
+    active_session_detected: "🟢 PC에서 진행 중인 세션이 감지되었습니다.\n💬 {{preview}}\n📅 {{time}}\n\n이어받으시겠습니까?",
+    btn_resume_active: "🟢 이어받기",
+    btn_new_session: "🆕 새 세션",
+    new_session_started: "🆕 새 세션이 시작되었습니다.\n📂 `{{dir}}`\n\n권한 모드를 선택하세요:",
+    btn_safe_mode: "🔒 안전 모드 (기본)",
+    btn_skip_mode: "⚡ 전체 허용",
+
+    // callback: resume_startup
+    session_resumed: "🔄 세션 이어받기 완료!\n📅 {{time}}\n\n권한 모드를 선택하세요:",
+    btn_safe_mode_short: "🔒 안전 모드",
+    no_session_to_resume: "이어받을 세션이 없습니다.",
+
+    // callback: perm selection
+    mode_set: "{{mode}}로 설정되었습니다.",
+    mode_safe: "🔒 안전 모드",
+    mode_skip: "⚡ 전체 허용 모드",
+    ready_prompt: "📂 `{{dir}}`{{resumeHint}}\n\n메시지를 보내면 작업이 시작됩니다. 디렉토리 변경: /setdir",
+    resume_hint: "\n이전 세션이 이어집니다.",
+    select_perm_mode: "권한 모드를 선택하세요:",
+
+    // callback: tool approval
+    plan_approval_title: "📋 **계획 승인 요청**\n\n{{detail}}",
+    tool_approval_title: "🔒 도구 승인 요청\n\n{{icon}} **{{name}}**",
+    btn_plan_approve: "✅ 승인 — 진행",
+    btn_plan_reject: "❌ 수정 필요",
+    btn_tool_approve: "✅ 허용",
+    btn_tool_reject: "❌ 거부",
+    plan_content_header: "📋 **계획 내용:**\n\n{{content}}",
+    plan_approve_question: "📋 위 계획을 승인하시겠습니까?",
+    plan_rejected_title: "❌ 계획 수정이 필요합니다.",
+    plan_rejection_input: "✏️ 수정 사항을 입력해주세요:",
+    plan_rejected_msg: "사용자가 계획을 거부했습니다. 수정 요청: {{feedback}}",
+    plan_rejected_no_feedback: "사용자가 계획을 거부했습니다. 수정이 필요합니다.",
+    tool_approved_msg: "✅ 도구 사용이 허용되었습니다.",
+    tool_denied_msg: "❌ 도구 사용이 거부되었습니다.",
+    tool_denied_sdk: "사용자가 도구 사용을 거부했습니다.",
+
+    // callback: sdk ask
+    ask_text_input: "✏️ 직접 입력",
+    ask_enter_text: "✏️ 답변을 텍스트로 입력해주세요:",
+    ask_invalid_choice: "잘못된 선택입니다.",
+
+    // callback: quick actions
+    quick_cleanup_msg: "🗑 대화를 정리하는 중...",
+    quick_cleanup_hint: "텔레그램에서 채팅방 상단 `...` → `Clear History`로 전체 정리할 수 있어요.\n\n봇 세션은 유지됩니다.",
+    already_processing: "⏳ 이미 처리 중입니다.",
+    btn_cleanup: "🗑 대화 정리",
+    btn_commit: "💾 커밋 푸시",
+    btn_summary: "📋 요약",
+
+    // callback: preview kill
+    process_killed: "🛑 프로세스 종료됨 (PID: {{pid}})",
+    process_already_killed: "⚪ 이미 종료된 프로세스입니다.",
+
+    // callback: photo_only
+    // (no text needed)
+
+    // callback: resume session select
+    session_resumed_full: "🔄 세션 이어받기 완료!\n\n📅 {{time}}\n{{preview}}\n메시지를 보내면 이전 대화가 이어집니다.",
+
+    // locked
+    bot_locked: "🔒 봇이 잠겨있습니다.",
+    bot_locked_unlock: "🔒 봇이 잠겨있습니다. `/unlock <PIN>`으로 해제하세요.",
+
+    // /status
+    status_title: "📊 현재 상태\n\n세션 ID: `{{session}}`\n작업 디렉토리: `{{dir}}`\n처리 중: {{processing}}\n권한 모드: {{mode}}",
+    status_processing_yes: "⏳ 예",
+    status_processing_no: "✅ 아니오",
+    status_mode_skip: "⚡ 전체 허용",
+    status_mode_safe: "🔒 안전",
+
+    // /setdir
+    setdir_prompt: "📂 현재: `{{dir}}`\n\n어디로 이동할까요?",
+    setdir_not_found: "❌ 디렉토리를 찾을 수 없습니다: `{{dir}}`",
+    setdir_changed: "📂 작업 디렉토리 변경됨: `{{dir}}`",
+
+    // /cancel
+    cancel_done: "🛑 현재 작업이 취소되었습니다.",
+    cancel_nothing: "실행 중인 작업이 없습니다.",
+
+    // /restart
+    restart_msg: "🔄 봇을 재시작합니다...",
+
+    // /plan
+    plan_activated: "📝 플랜 모드 활성화됨.\n다음 메시지에 대해 계획을 먼저 작성합니다.",
+    plan_force_prefix: "반드시 EnterPlanMode를 사용해서 플랜을 먼저 작성하고 승인받은 후 진행해줘.\n\n",
+
+    // /lock, /unlock
+    lock_pin_required: "🔐 4자리 이상의 PIN을 입력하세요: `/lock 1234`",
+    lock_done: "🔒 봇이 잠겼습니다. `/unlock <PIN>`으로 해제하세요.",
+    unlock_already: "이미 잠금 해제 상태입니다.",
+    unlock_done: "🔓 잠금이 해제되었습니다.",
+    unlock_wrong_pin: "❌ PIN이 일치하지 않습니다.",
+
+    // /files
+    files_empty: "(빈 디렉토리)",
+
+    // /read
+    read_prompt: "📄 읽을 파일명을 입력하세요:",
+    read_path_traversal: "⛔ 작업 디렉토리 밖의 파일에는 접근할 수 없습니다.",
+    read_not_found: "❌ 파일을 찾을 수 없습니다: `{{file}}`",
+    read_is_dir: "❌ `{{file}}`은(는) 디렉토리입니다.",
+    read_too_large: "❌ 파일이 너무 큽니다 ({{size}}MB). 1MB 이하 파일만 읽을 수 있습니다.",
+    read_error: "❌ 파일 읽기 오류: {{error}}",
+
+    // /preview
+    preview_prompt: "👁️ 미리볼 파일명을 입력하세요:",
+    preview_not_found: "❌ 파일을 찾을 수 없습니다: `{{file}}`",
+    preview_html_link: "🌐 미리보기 링크:\n{{url}}\n\n터널 종료: /tunnel stop",
+    preview_exe_running: "▶️ `{{file}}` 실행 중...",
+    preview_exe_screenshot: "📸 {{file}} 실행 후 스크린샷",
+    preview_script_running: "▶️ `{{file}}` 실행 중...",
+    preview_script_result: "💻 `{{file}}` 실행 결과:\n```\n{{output}}\n```",
+    preview_output_trimmed: "...(잘림)",
+    preview_gui_caption: "📸 {{file}} (GUI)",
+    preview_gui_running: "▶️ `{{file}}` 실행 중 (PID: {{pid}})",
+    preview_btn_kill: "🛑 프로세스 종료",
+    preview_too_large: "❌ 파일이 너무 큽니다 ({{size}}MB). 50MB 이하만 전송 가능합니다.",
+    preview_error: "❌ 미리보기 오류: {{error}}",
+
+    // /tunnel
+    tunnel_active: "🟢 터널 활성\n🌐 {{url}}\n\n종료: /tunnel stop",
+    tunnel_inactive: "⚪ 터널 비활성\n\n시작: /tunnel start",
+    tunnel_already_active: "🟢 이미 활성 상태입니다.\n🌐 {{url}}",
+    tunnel_starting: "⏳ 터널 시작 중...",
+    tunnel_started: "🟢 터널 시작됨!\n🌐 {{url}}\n\n종료: /tunnel stop",
+    tunnel_start_failed: "❌ 터널 시작 실패: {{error}}",
+    tunnel_already_inactive: "⚪ 터널이 이미 비활성 상태입니다.",
+    tunnel_stopped: "🔴 터널이 종료되었습니다.",
+    tunnel_usage: "사용법: `/tunnel [status|start|stop]`",
+
+    // /resume
+    resume_no_sessions: "이어받을 세션이 없습니다.\n📂 `{{dir}}`",
+    resume_select: "🔄 이어받을 세션을 선택하세요:\n📂 `{{dir}}`",
+
+    // runClaude
+    empty_response: "(빈 응답)",
+    error_unknown: "알 수 없는 오류",
+    error_prefix: "❌ 오류: {{error}}",
+    progress_update: "⏳ 진행 중 ({{turns}}턴 완료, {{time}} 경과)",
+    stats_done: "✅ {{turns}}턴 · ${{cost}} · {{duration}}",
+    time_min_sec: "{{min}}분 {{sec}}초",
+    time_sec: "{{sec}}초",
+
+    // processMessage errors
+    sdk_not_loaded: "SDK가 아직 로드되지 않았습니다. 잠시 후 다시 시도하세요.",
+    error_sdk_hint: "\n\n💡 Claude Agent SDK가 올바르게 설치되어 있는지 확인하세요.",
+    queue_added: "📋 대기열에 추가됨 ({{pos}}번째)",
+
+    // photo/document
+    photo_received: "📷 사진 수신 완료. 메시지를 입력하면 사진과 함께 전달됩니다.",
+    btn_photo_only: "📷 사진만 보내기",
+    photo_save_failed: "❌ 사진 저장 실패: {{error}}",
+    doc_save_failed: "❌ 파일 저장 실패: {{error}}",
+    photo_prompt_with_text: "이미지를 보내드립니다. 절대경로: {{path}}\n\n{{text}}",
+    photo_prompt_no_text: "이미지를 보내드립니다. 절대경로: {{path}}\n\n이 이미지를 확인해주세요.",
+    doc_prompt_with_text: "파일을 보내드립니다. 절대경로: {{path}}\n\n{{text}}",
+    doc_prompt_no_text: "파일을 보내드립니다. 절대경로: {{path}}\n\n이 파일을 확인해주세요.",
+
+    // message handler
+    first_select_perm: "먼저 권한 모드를 선택하세요:",
+    user_id_info: "유저 ID: `{{id}}`\n.env에 AUTHORIZED_USER_ID를 설정하세요.",
+
+    // script output
+    no_output: "(출력 없음)",
+
+    // startup
+    bot_started: "🟢 봇이 켜졌습니다. [{{name}}]\n📂 `{{dir}}`",
+    active_session_startup: "\n\n🟢 **PC에서 진행 중인 세션 감지!**\n{{dirTag}}💬 {{preview}}",
+    recent_session_startup: "\n\n💡 {{dirTag}}세션 ({{timeAgo}}):\n💬 {{preview}}",
+    time_ago_min: "{{n}}분 전",
+    time_ago_hour: "{{n}}시간 전",
+    time_ago_day: "{{n}}일 전",
+    btn_resume_active_session: "🟢 활성 세션 이어받기",
+    btn_resume_prev_session: "🔄 이전 세션 이어받기",
+
+    // shutdown
+    bot_stopped: "🔴 봇이 꺼졌습니다.",
+
+    // reconnect
+    reconnected: "🟢 네트워크 재연결됨. 정상 동작합니다.",
+
+    // auto-commit prompt
+    auto_commit_prompt: "변경사항을 확인하고 적절한 커밋 메시지로 커밋하고 푸시해줘",
+    auto_summary_prompt: "방금 작업한 내용을 간단히 요약해줘",
+
+    // session none
+    session_none: "(아직 없음)",
+    session_empty: "(없음)",
+    content_empty: "(내용 없음)",
+  },
+
+  en: {
+    cmd_start: "Start bot + show user ID",
+    cmd_new: "Start new session",
+    cmd_status: "Current status (session, directory)",
+    cmd_setdir: "Change working directory",
+    cmd_cancel: "Cancel current task",
+    cmd_files: "List files",
+    cmd_read: "Read file contents",
+    cmd_preview: "Preview file (HTML/image/script)",
+    cmd_tunnel: "Tunnel management (status/start/stop)",
+    cmd_resume: "Resume terminal session",
+    cmd_restart: "Restart bot",
+    cmd_plan: "Enable plan mode for next message",
+    cmd_lock: "Lock bot with PIN",
+    cmd_unlock: "Unlock bot",
+
+    start_no_auth: "Hello, {{name}}!\n\nYour Telegram user ID: `{{id}}`\n\nAdd the following to your .env file and restart the bot:\n`AUTHORIZED_USER_ID={{id}}`",
+    start_unauthorized: "⛔ Unauthorized user.",
+    start_welcome: "✅ Authenticated! Claude Code Remote Controller ready.\n\nSession ID: `{{session}}`\nWorking directory: `{{dir}}`\n\nCommands:\n/new - New session\n/resume - Resume terminal session\n/plan - Plan mode for next message\n/status - Current status\n/setdir <path> - Change directory\n/cancel - Cancel task\n/files - List files\n/read <file> - Read file\n/preview <file> - Preview file\n/tunnel - Tunnel management\n/lock <PIN> - Lock bot\n/unlock <PIN> - Unlock bot\n\nSend any text to forward it to Claude Code.",
+
+    active_session_detected: "🟢 Active session detected on PC.\n💬 {{preview}}\n📅 {{time}}\n\nWould you like to resume?",
+    btn_resume_active: "🟢 Resume",
+    btn_new_session: "🆕 New Session",
+    new_session_started: "🆕 New session started.\n📂 `{{dir}}`\n\nSelect permission mode:",
+    btn_safe_mode: "🔒 Safe Mode (default)",
+    btn_skip_mode: "⚡ Allow All",
+
+    session_resumed: "🔄 Session resumed!\n📅 {{time}}\n\nSelect permission mode:",
+    btn_safe_mode_short: "🔒 Safe Mode",
+    no_session_to_resume: "No session to resume.",
+
+    mode_set: "Set to {{mode}}.",
+    mode_safe: "🔒 Safe Mode",
+    mode_skip: "⚡ Allow All Mode",
+    ready_prompt: "📂 `{{dir}}`{{resumeHint}}\n\nSend a message to start. Change directory: /setdir",
+    resume_hint: "\nPrevious session will continue.",
+    select_perm_mode: "Select permission mode:",
+
+    plan_approval_title: "📋 **Plan Approval Request**\n\n{{detail}}",
+    tool_approval_title: "🔒 Tool Approval Request\n\n{{icon}} **{{name}}**",
+    btn_plan_approve: "✅ Approve — Proceed",
+    btn_plan_reject: "❌ Needs Revision",
+    btn_tool_approve: "✅ Allow",
+    btn_tool_reject: "❌ Deny",
+    plan_content_header: "📋 **Plan Content:**\n\n{{content}}",
+    plan_approve_question: "📋 Would you like to approve this plan?",
+    plan_rejected_title: "❌ Plan needs revision.",
+    plan_rejection_input: "✏️ Please enter your feedback:",
+    plan_rejected_msg: "User rejected the plan. Revision request: {{feedback}}",
+    plan_rejected_no_feedback: "User rejected the plan. Revision needed.",
+    tool_approved_msg: "✅ Tool use approved.",
+    tool_denied_msg: "❌ Tool use denied.",
+    tool_denied_sdk: "User denied tool use.",
+
+    ask_text_input: "✏️ Custom Input",
+    ask_enter_text: "✏️ Please enter your answer:",
+    ask_invalid_choice: "Invalid selection.",
+
+    quick_cleanup_msg: "🗑 Cleaning up chat...",
+    quick_cleanup_hint: "You can clear all messages via `...` → `Clear History` at the top of the chat.\n\nBot session is preserved.",
+    already_processing: "⏳ Already processing.",
+    btn_cleanup: "🗑 Cleanup",
+    btn_commit: "💾 Commit & Push",
+    btn_summary: "📋 Summary",
+
+    process_killed: "🛑 Process terminated (PID: {{pid}})",
+    process_already_killed: "⚪ Process already terminated.",
+
+    session_resumed_full: "🔄 Session resumed!\n\n📅 {{time}}\n{{preview}}\nSend a message to continue the previous conversation.",
+
+    bot_locked: "🔒 Bot is locked.",
+    bot_locked_unlock: "🔒 Bot is locked. Use `/unlock <PIN>` to unlock.",
+
+    status_title: "📊 Current Status\n\nSession ID: `{{session}}`\nWorking directory: `{{dir}}`\nProcessing: {{processing}}\nPermission mode: {{mode}}",
+    status_processing_yes: "⏳ Yes",
+    status_processing_no: "✅ No",
+    status_mode_skip: "⚡ Allow All",
+    status_mode_safe: "🔒 Safe",
+
+    setdir_prompt: "📂 Current: `{{dir}}`\n\nWhere would you like to go?",
+    setdir_not_found: "❌ Directory not found: `{{dir}}`",
+    setdir_changed: "📂 Working directory changed: `{{dir}}`",
+
+    cancel_done: "🛑 Current task has been cancelled.",
+    cancel_nothing: "No task is running.",
+
+    restart_msg: "🔄 Restarting bot...",
+
+    plan_activated: "📝 Plan mode activated.\nA plan will be created before the next message.",
+    plan_force_prefix: "You MUST use EnterPlanMode to create a plan first, get approval, then proceed.\n\n",
+
+    lock_pin_required: "🔐 Please enter a PIN of 4+ digits: `/lock 1234`",
+    lock_done: "🔒 Bot is locked. Use `/unlock <PIN>` to unlock.",
+    unlock_already: "Already unlocked.",
+    unlock_done: "🔓 Bot has been unlocked.",
+    unlock_wrong_pin: "❌ PIN does not match.",
+
+    files_empty: "(empty directory)",
+
+    read_prompt: "📄 Enter a file name to read:",
+    read_path_traversal: "⛔ Cannot access files outside the working directory.",
+    read_not_found: "❌ File not found: `{{file}}`",
+    read_is_dir: "❌ `{{file}}` is a directory.",
+    read_too_large: "❌ File too large ({{size}}MB). Only files under 1MB can be read.",
+    read_error: "❌ File read error: {{error}}",
+
+    preview_prompt: "👁️ Enter a file name to preview:",
+    preview_not_found: "❌ File not found: `{{file}}`",
+    preview_html_link: "🌐 Preview link:\n{{url}}\n\nStop tunnel: /tunnel stop",
+    preview_exe_running: "▶️ Running `{{file}}`...",
+    preview_exe_screenshot: "📸 Screenshot after running {{file}}",
+    preview_script_running: "▶️ Running `{{file}}`...",
+    preview_script_result: "💻 `{{file}}` output:\n```\n{{output}}\n```",
+    preview_output_trimmed: "...(trimmed)",
+    preview_gui_caption: "📸 {{file}} (GUI)",
+    preview_gui_running: "▶️ `{{file}}` running (PID: {{pid}})",
+    preview_btn_kill: "🛑 Kill Process",
+    preview_too_large: "❌ File too large ({{size}}MB). Max 50MB.",
+    preview_error: "❌ Preview error: {{error}}",
+
+    tunnel_active: "🟢 Tunnel active\n🌐 {{url}}\n\nStop: /tunnel stop",
+    tunnel_inactive: "⚪ Tunnel inactive\n\nStart: /tunnel start",
+    tunnel_already_active: "🟢 Already active.\n🌐 {{url}}",
+    tunnel_starting: "⏳ Starting tunnel...",
+    tunnel_started: "🟢 Tunnel started!\n🌐 {{url}}\n\nStop: /tunnel stop",
+    tunnel_start_failed: "❌ Tunnel start failed: {{error}}",
+    tunnel_already_inactive: "⚪ Tunnel is already inactive.",
+    tunnel_stopped: "🔴 Tunnel has been stopped.",
+    tunnel_usage: "Usage: `/tunnel [status|start|stop]`",
+
+    resume_no_sessions: "No sessions to resume.\n📂 `{{dir}}`",
+    resume_select: "🔄 Select a session to resume:\n📂 `{{dir}}`",
+
+    empty_response: "(empty response)",
+    error_unknown: "Unknown error",
+    error_prefix: "❌ Error: {{error}}",
+    progress_update: "⏳ In progress ({{turns}} turns, {{time}} elapsed)",
+    stats_done: "✅ {{turns}} turns · ${{cost}} · {{duration}}",
+    time_min_sec: "{{min}}m {{sec}}s",
+    time_sec: "{{sec}}s",
+
+    sdk_not_loaded: "SDK not loaded yet. Please try again shortly.",
+    error_sdk_hint: "\n\n💡 Please check that Claude Agent SDK is properly installed.",
+    queue_added: "📋 Added to queue (position {{pos}})",
+
+    photo_received: "📷 Photo received. Send a message to forward it with the photo.",
+    btn_photo_only: "📷 Send photo only",
+    photo_save_failed: "❌ Photo save failed: {{error}}",
+    doc_save_failed: "❌ File save failed: {{error}}",
+    photo_prompt_with_text: "Here is an image. Absolute path: {{path}}\n\n{{text}}",
+    photo_prompt_no_text: "Here is an image. Absolute path: {{path}}\n\nPlease review this image.",
+    doc_prompt_with_text: "Here is a file. Absolute path: {{path}}\n\n{{text}}",
+    doc_prompt_no_text: "Here is a file. Absolute path: {{path}}\n\nPlease review this file.",
+
+    first_select_perm: "Please select a permission mode first:",
+    user_id_info: "User ID: `{{id}}`\nSet AUTHORIZED_USER_ID in .env.",
+
+    no_output: "(no output)",
+
+    bot_started: "🟢 Bot started. [{{name}}]\n📂 `{{dir}}`",
+    active_session_startup: "\n\n🟢 **Active session detected on PC!**\n{{dirTag}}💬 {{preview}}",
+    recent_session_startup: "\n\n💡 {{dirTag}}Session ({{timeAgo}}):\n💬 {{preview}}",
+    time_ago_min: "{{n}}m ago",
+    time_ago_hour: "{{n}}h ago",
+    time_ago_day: "{{n}}d ago",
+    btn_resume_active_session: "🟢 Resume Active Session",
+    btn_resume_prev_session: "🔄 Resume Previous Session",
+
+    bot_stopped: "🔴 Bot has been stopped.",
+
+    reconnected: "🟢 Network reconnected. Operating normally.",
+
+    auto_commit_prompt: "Check changes and commit with an appropriate message, then push",
+    auto_summary_prompt: "Briefly summarize what was just done",
+
+    session_none: "(none yet)",
+    session_empty: "(none)",
+    content_empty: "(no content)",
+  },
+};
+
+function t(key, vars = {}) {
+  const str = STRINGS[currentLang]?.[key] || STRINGS.ko[key] || key;
+  return str.replace(/\{\{(\w+)\}\}/g, (_, k) => (vars[k] !== undefined ? vars[k] : `{{${k}}}`));
+}
+
 if (!BOT_TOKEN || BOT_TOKEN === "your_bot_token_here") {
   logError("[ERROR] TELEGRAM_BOT_TOKEN이 설정되지 않았습니다. .env 파일을 확인하세요.");
   process.exit(1);
@@ -110,22 +519,25 @@ if (!AUTHORIZED_USER_ID) {
 // ─── 봇 초기화 ───────────────────────────────────────────────────
 const bot = new TelegramBot(BOT_TOKEN, { polling: true });
 
-bot.setMyCommands([
-  { command: "start", description: "봇 시작 + 유저 ID 안내" },
-  { command: "new", description: "새 세션 시작" },
-  { command: "status", description: "현재 상태 (세션, 디렉토리)" },
-  { command: "setdir", description: "작업 디렉토리 변경" },
-  { command: "cancel", description: "현재 작업 취소" },
-  { command: "files", description: "파일 목록 보기" },
-  { command: "read", description: "파일 내용 읽기" },
-  { command: "preview", description: "파일 미리보기 (HTML/이미지/스크립트)" },
-  { command: "tunnel", description: "터널 관리 (status/start/stop)" },
-  { command: "resume", description: "터미널 세션 이어받기" },
-  { command: "restart", description: "봇 재시작" },
-  { command: "plan", description: "다음 메시지에 플랜 모드 적용" },
-  { command: "lock", description: "PIN으로 봇 잠금" },
-  { command: "unlock", description: "잠금 해제" },
-]);
+function setCommands() {
+  bot.setMyCommands([
+    { command: "start", description: t("cmd_start") },
+    { command: "new", description: t("cmd_new") },
+    { command: "status", description: t("cmd_status") },
+    { command: "setdir", description: t("cmd_setdir") },
+    { command: "cancel", description: t("cmd_cancel") },
+    { command: "files", description: t("cmd_files") },
+    { command: "read", description: t("cmd_read") },
+    { command: "preview", description: t("cmd_preview") },
+    { command: "tunnel", description: t("cmd_tunnel") },
+    { command: "resume", description: t("cmd_resume") },
+    { command: "restart", description: t("cmd_restart") },
+    { command: "plan", description: t("cmd_plan") },
+    { command: "lock", description: t("cmd_lock") },
+    { command: "unlock", description: t("cmd_unlock") },
+  ]);
+}
+setCommands();
 
 log("[INFO] 봇이 시작되었습니다. 텔레그램에서 메시지를 보내보세요.");
 
@@ -138,6 +550,7 @@ function loadState() {
   try {
     if (fs.existsSync(STATE_FILE)) {
       const data = JSON.parse(fs.readFileSync(STATE_FILE, "utf-8"));
+      if (data.lang && STRINGS[data.lang]) currentLang = data.lang;
       if (data.workingDir && fs.existsSync(data.workingDir)) {
         return data.workingDir;
       }
@@ -148,7 +561,7 @@ function loadState() {
 
 function saveState() {
   try {
-    fs.writeFileSync(STATE_FILE, JSON.stringify({ workingDir }, null, 2));
+    fs.writeFileSync(STATE_FILE, JSON.stringify({ workingDir, lang: currentLang }, null, 2));
   } catch {}
 }
 
@@ -272,7 +685,7 @@ function convertMarkdownTables(text) {
 
 async function sendLongMessage(chatId, text, options = {}) {
   if (!text || text.length === 0) {
-    await safeSend(chatId, "(빈 응답)", options);
+    await safeSend(chatId, t("empty_response"), options);
     return;
   }
 
@@ -571,7 +984,7 @@ function askViaTelegram(question, signal) {
       text: opt.label,
       callback_data: `sdk_ask_${i}`,
     }));
-    buttons.push({ text: "✏️ 직접 입력", callback_data: "sdk_ask_other" });
+    buttons.push({ text: t("ask_text_input"), callback_data: "sdk_ask_other" });
     const rows = [];
     for (let i = 0; i < buttons.length; i += 2) {
       rows.push(buttons.slice(i, i + 2));
@@ -635,18 +1048,18 @@ function askToolApproval(toolName, detail, signal) {
     const isPlan = toolName === "ExitPlanMode";
     const icon = isPlan ? "📋" : (TOOL_ICONS[toolName] || "🔧");
     let text = isPlan
-      ? `📋 **계획 승인 요청**\n\n${detail}`
-      : `🔒 도구 승인 요청\n\n${icon} **${toolName}**`;
+      ? t("plan_approval_title", { detail })
+      : t("tool_approval_title", { icon, name: toolName });
     if (!isPlan && detail) text += `\n${detail}`;
 
     const buttons = isPlan
       ? [
-          { text: "✅ 승인 — 진행", callback_data: "tool_approve_yes" },
-          { text: "❌ 수정 필요", callback_data: "tool_approve_no" },
+          { text: t("btn_plan_approve"), callback_data: "tool_approve_yes" },
+          { text: t("btn_plan_reject"), callback_data: "tool_approve_no" },
         ]
       : [
-          { text: "✅ 허용", callback_data: "tool_approve_yes" },
-          { text: "❌ 거부", callback_data: "tool_approve_no" },
+          { text: t("btn_tool_approve"), callback_data: "tool_approve_yes" },
+          { text: t("btn_tool_reject"), callback_data: "tool_approve_no" },
         ];
 
     bot.sendMessage(AUTHORIZED_USER_ID, text, {
@@ -735,7 +1148,7 @@ async function handleToolPermission(toolName, input, options) {
       try {
         const planContent = fs.readFileSync(planFile, "utf-8");
         if (planContent.trim()) {
-          await sendLongMessage(AUTHORIZED_USER_ID, `📋 **계획 내용:**\n\n${planContent}`, {
+          await sendLongMessage(AUTHORIZED_USER_ID, t("plan_content_header", { content: planContent }), {
             parse_mode: "Markdown",
           });
         }
@@ -750,19 +1163,19 @@ async function handleToolPermission(toolName, input, options) {
     }
     try {
       log("[PLAN] 플랜 모드 종료 승인 요청");
-      const result = await askToolApproval("ExitPlanMode", "📋 위 계획을 승인하시겠습니까?", signal);
+      const result = await askToolApproval("ExitPlanMode", t("plan_approve_question"), signal);
       if (result === true) {
         log("[PLAN] 계획 승인됨 → 구현 시작");
         return { behavior: "allow", updatedInput: input };
       } else if (result && result.feedback) {
         log(`[PLAN] 계획 거부됨 — 피드백: ${result.feedback}`);
-        return { behavior: "deny", message: `사용자가 계획을 거부했습니다. 수정 요청: ${result.feedback}` };
+        return { behavior: "deny", message: t("plan_rejected_msg", { feedback: result.feedback }) };
       } else {
         log("[PLAN] 계획 거부됨");
-        return { behavior: "deny", message: "사용자가 계획을 거부했습니다. 수정이 필요합니다." };
+        return { behavior: "deny", message: t("plan_rejected_no_feedback") };
       }
     } catch (err) {
-      return { behavior: "deny", message: err.message || "계획 승인 요청 실패" };
+      return { behavior: "deny", message: err.message || t("plan_rejected_no_feedback") };
     }
   }
 
@@ -785,7 +1198,7 @@ async function handleToolPermission(toolName, input, options) {
       return { behavior: "allow", updatedInput: input };
     } else {
       log(`[PERM] ${toolName} 도구 거부됨`);
-      return { behavior: "deny", message: "사용자가 도구 사용을 거부했습니다." };
+      return { behavior: "deny", message: t("tool_denied_sdk") };
     }
   } catch (err) {
     return { behavior: "deny", message: err.message || "도구 승인 요청 실패" };
@@ -795,7 +1208,7 @@ async function handleToolPermission(toolName, input, options) {
 // ─── Claude Code SDK 실행 ────────────────────────────────────────
 async function runClaude(prompt, chatId) {
   if (!sdkQuery) {
-    throw new Error("SDK가 아직 로드되지 않았습니다. 잠시 후 다시 시도하세요.");
+    throw new Error(t("sdk_not_loaded"));
   }
 
   const abortController = new AbortController();
@@ -858,9 +1271,9 @@ async function runClaude(prompt, chatId) {
           const elapsedSec = Math.floor((periodicNow - taskStartTime) / 1000);
           const elapsedMin = Math.floor(elapsedSec / 60);
           const elapsedSecRem = elapsedSec % 60;
-          const timeStr = elapsedMin > 0 ? `${elapsedMin}분 ${elapsedSecRem}초` : `${elapsedSecRem}초`;
+          const timeStr = elapsedMin > 0 ? t("time_min_sec", { min: elapsedMin, sec: elapsedSecRem }) : t("time_sec", { sec: elapsedSecRem });
           try {
-            await safeSend(chatId, `⏳ 진행 중 (${turnCount}턴 완료, ${timeStr} 경과)`, {
+            await safeSend(chatId, t("progress_update", { turns: turnCount, time: timeStr }), {
               disable_notification: true,
             });
           } catch {}
@@ -911,10 +1324,10 @@ async function runClaude(prompt, chatId) {
 
         if (message.subtype === "success") {
           // 중간에 이미 텍스트를 보냈으면 최종 결과는 생략 (중복 방지)
-          resultText = sentIntermediateText ? "" : (message.result || "(빈 응답)");
+          resultText = sentIntermediateText ? "" : (message.result || t("empty_response"));
         } else {
-          const errors = message.errors?.join("\n") || "알 수 없는 오류";
-          resultText = `❌ 오류: ${errors}`;
+          const errors = message.errors?.join("\n") || t("error_unknown");
+          resultText = t("error_prefix", { error: errors });
         }
 
         log(`[SDK] 완료 — turns: ${message.num_turns}, cost: $${message.total_cost_usd?.toFixed(4) || "?"}`);
@@ -923,10 +1336,10 @@ async function runClaude(prompt, chatId) {
         const elapsed = Date.now() - taskStartTime;
         const minutes = Math.floor(elapsed / 60000);
         const seconds = Math.floor((elapsed % 60000) / 1000);
-        const durationStr = minutes > 0 ? `${minutes}분 ${seconds}초` : `${seconds}초`;
+        const durationStr = minutes > 0 ? t("time_min_sec", { min: minutes, sec: seconds }) : t("time_sec", { sec: seconds });
         const turns = message.num_turns || 0;
         const cost = message.total_cost_usd?.toFixed(2) || "?";
-        statsText = `✅ ${turns}턴 · $${cost} · ${durationStr}`;
+        statsText = t("stats_done", { turns, cost, duration: durationStr });
       }
     }
 
@@ -1095,7 +1508,7 @@ function runScript(command, cwd) {
       if (stdout) output += stdout;
       if (stderr) output += (output ? "\n" : "") + stderr;
       if (err && !output) output = err.message;
-      resolve(output || "(출력 없음)");
+      resolve(output || t("no_output"));
     });
   });
 }
@@ -1120,7 +1533,7 @@ function runScriptSmart(command, cwd) {
         // 콘솔 스크립트: stdout 반환
         let output = stdout;
         if (stderr) output += (output ? "\n" : "") + stderr;
-        resolve({ type: "text", output: output || "(출력 없음)" });
+        resolve({ type: "text", output: output || t("no_output") });
       } else {
         // GUI 스크립트: 스크린샷
         resolve({ type: "gui", child });
@@ -1142,39 +1555,20 @@ bot.onText(/\/start/, async (msg) => {
   if (!AUTHORIZED_USER_ID) {
     await bot.sendMessage(
       chatId,
-      `안녕하세요, ${userName}님!\n\n` +
-        `당신의 Telegram 유저 ID: \`${userId}\`\n\n` +
-        `.env 파일에 다음을 추가한 뒤 봇을 재시작하세요:\n` +
-        `\`AUTHORIZED_USER_ID=${userId}\``,
+      t("start_no_auth", { name: userName, id: userId }),
       { parse_mode: "Markdown" }
     );
     return;
   }
 
   if (!isAuthorized(msg)) {
-    await bot.sendMessage(chatId, "⛔ 인증되지 않은 사용자입니다.");
+    await bot.sendMessage(chatId, t("start_unauthorized"));
     return;
   }
 
   await bot.sendMessage(
     chatId,
-    `✅ 인증 완료! Claude Code Remote Controller 준비됨.\n\n` +
-      `세션 ID: \`${sessionId || "(아직 없음)"}\`\n` +
-      `작업 디렉토리: \`${workingDir}\`\n\n` +
-      `명령어 목록:\n` +
-      `/new - 새 세션 시작\n` +
-      `/resume - 터미널 세션 이어받기\n` +
-      `/plan - 다음 메시지에 플랜 모드 적용\n` +
-      `/status - 현재 상태\n` +
-      `/setdir <경로> - 작업 디렉토리 변경\n` +
-      `/cancel - 현재 작업 취소\n` +
-      `/files - 파일 목록\n` +
-      `/read <파일> - 파일 내용 읽기\n` +
-      `/preview <파일> - 파일 미리보기\n` +
-      `/tunnel - 터널 관리\n` +
-      `/lock <PIN> - 봇 잠금\n` +
-      `/unlock <PIN> - 잠금 해제\n\n` +
-      `일반 메시지를 보내면 Claude Code에 전달됩니다.`,
+    t("start_welcome", { session: sessionId || t("session_none"), dir: workingDir }),
     { parse_mode: "Markdown" }
   );
 });
@@ -1189,16 +1583,14 @@ bot.onText(/\/new/, async (msg) => {
   const activeSessions = findActiveSessions(workingDir);
   if (activeSessions.length > 0) {
     const s = activeSessions[0];
-    const timeStr = s.mtime.toLocaleString("ko-KR", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+    const timeStr = s.mtime.toLocaleString(getLocale(), { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
     await bot.sendMessage(chatId,
-      `🟢 PC에서 진행 중인 세션이 감지되었습니다.\n` +
-      `💬 ${s.preview || "(내용 없음)"}\n📅 ${timeStr}\n\n` +
-      `이어받으시겠습니까?`, {
+      t("active_session_detected", { preview: s.preview || t("content_empty"), time: timeStr }), {
       reply_markup: {
         inline_keyboard: [
           [
-            { text: "🟢 이어받기", callback_data: "resume_startup" },
-            { text: "🆕 새 세션", callback_data: "new_force" },
+            { text: t("btn_resume_active"), callback_data: "resume_startup" },
+            { text: t("btn_new_session"), callback_data: "new_force" },
           ],
         ],
       },
@@ -1212,13 +1604,14 @@ bot.onText(/\/new/, async (msg) => {
 
   await bot.sendMessage(
     chatId,
-    `🆕 새 세션이 시작되었습니다.\n📂 \`${workingDir}\`\n\n권한 모드를 선택하세요:`,
+    t("new_session_started", { dir: workingDir }),
     {
+      parse_mode: "Markdown",
       reply_markup: {
         inline_keyboard: [
           [
-            { text: "🔒 안전 모드 (기본)", callback_data: "perm_safe" },
-            { text: "⚡ 전체 허용", callback_data: "perm_skip" },
+            { text: t("btn_safe_mode"), callback_data: "perm_safe" },
+            { text: t("btn_skip_mode"), callback_data: "perm_skip" },
           ],
         ],
       },
@@ -1232,7 +1625,7 @@ bot.on("callback_query", async (query) => {
 
   // 잠금 체크 (unlock 관련 콜백만 통과)
   if (isLocked && !query.data.startsWith("tool_approve")) {
-    await bot.answerCallbackQuery(query.id, { text: "🔒 봇이 잠겨있습니다." });
+    await bot.answerCallbackQuery(query.id, { text: t("bot_locked") });
     return;
   }
 
@@ -1242,21 +1635,19 @@ bot.on("callback_query", async (query) => {
     try { await bot.deleteMessage(chatId, query.message.message_id); } catch {}
 
     if (query.data === "quick_cleanup") {
-      // 봇이 보낸 최근 메시지들 삭제 (최대 50개)
-      await bot.sendMessage(chatId, "🗑 대화를 정리하는 중...", { disable_notification: true });
-      // 사용자가 직접 Clear History를 사용하도록 안내
-      await bot.sendMessage(chatId, "텔레그램에서 채팅방 상단 `...` → `Clear History`로 전체 정리할 수 있어요.\n\n봇 세션은 유지됩니다.", { parse_mode: "Markdown" });
+      await bot.sendMessage(chatId, t("quick_cleanup_msg"), { disable_notification: true });
+      await bot.sendMessage(chatId, t("quick_cleanup_hint"), { parse_mode: "Markdown" });
     } else if (query.data === "quick_commit") {
       if (isProcessing) {
-        await bot.sendMessage(chatId, "⏳ 이미 처리 중입니다.", { disable_notification: true });
+        await bot.sendMessage(chatId, t("already_processing"), { disable_notification: true });
       } else {
-        processMessage(chatId, "변경사항을 확인하고 적절한 커밋 메시지로 커밋하고 푸시해줘");
+        processMessage(chatId, t("auto_commit_prompt"));
       }
     } else if (query.data === "quick_summary") {
       if (isProcessing) {
-        await bot.sendMessage(chatId, "⏳ 이미 처리 중입니다.", { disable_notification: true });
+        await bot.sendMessage(chatId, t("already_processing"), { disable_notification: true });
       } else {
-        processMessage(chatId, "방금 작업한 내용을 간단히 요약해줘");
+        processMessage(chatId, t("auto_summary_prompt"));
       }
     }
     return;
@@ -1269,20 +1660,20 @@ bot.on("callback_query", async (query) => {
       sessionId = sessions[0].id;
       await bot.answerCallbackQuery(query.id);
       await bot.editMessageText(
-        `🔄 세션 이어받기 완료!\n📅 ${sessions[0].mtime.toLocaleString("ko-KR")}\n\n권한 모드를 선택하세요:`,
+        t("session_resumed", { time: sessions[0].mtime.toLocaleString(getLocale()) }),
         {
           chat_id: chatId, message_id: query.message.message_id,
           reply_markup: {
             inline_keyboard: [[
-              { text: "🔒 안전 모드", callback_data: "perm_safe" },
-              { text: "⚡ 전체 허용", callback_data: "perm_skip" },
+              { text: t("btn_safe_mode_short"), callback_data: "perm_safe" },
+              { text: t("btn_skip_mode"), callback_data: "perm_skip" },
             ]],
           },
         }
       );
       log(`[RESUME] 시작 시 세션 이어받기: ${sessionId}`);
     } else {
-      await bot.answerCallbackQuery(query.id, { text: "이어받을 세션이 없습니다." });
+      await bot.answerCallbackQuery(query.id, { text: t("no_session_to_resume") });
     }
     return;
   }
@@ -1294,14 +1685,14 @@ bot.on("callback_query", async (query) => {
     skipPermissions = false;
     needsPermissionChoice = true;
     await bot.editMessageText(
-      `🆕 새 세션이 시작되었습니다.\n📂 \`${workingDir}\`\n\n권한 모드를 선택하세요:`,
+      t("new_session_started", { dir: workingDir }),
       {
         chat_id: chatId, message_id: query.message.message_id,
         parse_mode: "Markdown",
         reply_markup: {
           inline_keyboard: [[
-            { text: "🔒 안전 모드 (기본)", callback_data: "perm_safe" },
-            { text: "⚡ 전체 허용", callback_data: "perm_skip" },
+            { text: t("btn_safe_mode"), callback_data: "perm_safe" },
+            { text: t("btn_skip_mode"), callback_data: "perm_skip" },
           ]],
         },
       }
@@ -1324,12 +1715,12 @@ bot.on("callback_query", async (query) => {
     await bot.answerCallbackQuery(query.id);
     if (previewChildPid) {
       exec(`taskkill /PID ${previewChildPid} /T /F`, () => {});
-      await bot.editMessageText(`🛑 프로세스 종료됨 (PID: ${previewChildPid})`, {
+      await bot.editMessageText(t("process_killed", { pid: previewChildPid }), {
         chat_id: chatId, message_id: query.message.message_id,
       });
       previewChildPid = null;
     } else {
-      await bot.editMessageText("⚪ 이미 종료된 프로세스입니다.", {
+      await bot.editMessageText(t("process_already_killed"), {
         chat_id: chatId, message_id: query.message.message_id,
       });
     }
@@ -1341,7 +1732,7 @@ bot.on("callback_query", async (query) => {
     const idx = parseInt(query.data.replace("resume_", ""), 10);
     const selected = pendingResumeSessions[idx];
     if (!selected) {
-      await bot.answerCallbackQuery(query.id, { text: "잘못된 선택입니다." });
+      await bot.answerCallbackQuery(query.id, { text: t("ask_invalid_choice") });
       return;
     }
 
@@ -1350,22 +1741,22 @@ bot.on("callback_query", async (query) => {
 
     await bot.answerCallbackQuery(query.id);
     await bot.editMessageText(
-      `🔄 세션 이어받기 완료!\n\n` +
-        `📅 ${selected.mtime.toLocaleString("ko-KR")}\n` +
-        (selected.preview ? `💬 ${selected.preview}\n` : "") +
-        `\n메시지를 보내면 이전 대화가 이어집니다.`,
+      t("session_resumed_full", {
+        time: selected.mtime.toLocaleString(getLocale()),
+        preview: selected.preview ? `💬 ${selected.preview}\n` : "",
+      }),
       { chat_id: chatId, message_id: query.message.message_id }
     );
     log(`[RESUME] 세션 이어받기: ${sessionId}`);
 
     // 권한 모드 선택 필요하면 물어보기
     if (needsPermissionChoice) {
-      await bot.sendMessage(chatId, "권한 모드를 선택하세요:", {
+      await bot.sendMessage(chatId, t("select_perm_mode"), {
         reply_markup: {
           inline_keyboard: [
             [
-              { text: "🔒 안전 모드 (기본)", callback_data: "perm_safe" },
-              { text: "⚡ 전체 허용", callback_data: "perm_skip" },
+              { text: t("btn_safe_mode"), callback_data: "perm_safe" },
+              { text: t("btn_skip_mode"), callback_data: "perm_skip" },
             ],
           ],
         },
@@ -1379,16 +1770,16 @@ bot.on("callback_query", async (query) => {
     skipPermissions = query.data === "perm_skip";
     needsPermissionChoice = false;
     await bot.answerCallbackQuery(query.id);
-    const modeText = skipPermissions ? "⚡ 전체 허용 모드" : "🔒 안전 모드";
+    const modeText = skipPermissions ? t("mode_skip") : t("mode_safe");
     await bot.editMessageText(
-      `${modeText}로 설정되었습니다.`,
+      t("mode_set", { mode: modeText }),
       { chat_id: chatId, message_id: query.message.message_id }
     );
     log(`[MODE] ${modeText}`);
-    const resumeHint = sessionId ? "\n이전 세션이 이어집니다." : "";
+    const resumeHint = sessionId ? t("resume_hint") : "";
     await bot.sendMessage(
       chatId,
-      `📂 \`${workingDir}\`${resumeHint}\n\n메시지를 보내면 작업이 시작됩니다. 디렉토리 변경: /setdir`,
+      t("ready_prompt", { dir: workingDir, resumeHint }),
       { parse_mode: "Markdown" }
     );
     // 대기 중인 메시지가 있으면 자동 처리 (사전에 보낸 메시지)
@@ -1406,19 +1797,17 @@ bot.on("callback_query", async (query) => {
     // 플랜 거부 시 피드백 입력 요청
     if (!approved && pendingToolApproval.isPlan) {
       await bot.editMessageText(
-        `❌ 계획 수정이 필요합니다.`,
+        t("plan_rejected_title"),
         { chat_id: chatId, message_id: query.message.message_id }
       );
       pendingPlanRejection = pendingToolApproval;
       pendingToolApproval = null;
-      await bot.sendMessage(chatId, "✏️ 수정 사항을 입력해주세요:");
+      await bot.sendMessage(chatId, t("plan_rejection_input"));
       return;
     }
 
     await bot.editMessageText(
-      approved
-        ? `✅ 도구 사용이 허용되었습니다.`
-        : `❌ 도구 사용이 거부되었습니다.`,
+      approved ? t("tool_approved_msg") : t("tool_denied_msg"),
       { chat_id: chatId, message_id: query.message.message_id }
     );
     pendingToolApproval.resolve(approved);
@@ -1432,7 +1821,7 @@ bot.on("callback_query", async (query) => {
       await bot.answerCallbackQuery(query.id);
       ctx.waitingTextInput = true;
       ctx.askMessageId = query.message.message_id;
-      await bot.sendMessage(chatId, "✏️ 답변을 텍스트로 입력해주세요:");
+      await bot.sendMessage(chatId, t("ask_enter_text"));
       return;
     }
 
@@ -1440,7 +1829,7 @@ bot.on("callback_query", async (query) => {
     const selected = ctx.options[idx];
 
     if (!selected) {
-      await bot.answerCallbackQuery(query.id, { text: "잘못된 선택입니다." });
+      await bot.answerCallbackQuery(query.id, { text: t("ask_invalid_choice") });
       return;
     }
 
@@ -1472,11 +1861,12 @@ bot.onText(/\/status/, async (msg) => {
 
   await bot.sendMessage(
     chatId,
-    `📊 현재 상태\n\n` +
-      `세션 ID: \`${sessionId || "(없음)"}\`\n` +
-      `작업 디렉토리: \`${workingDir}\`\n` +
-      `처리 중: ${isProcessing ? "⏳ 예" : "✅ 아니오"}\n` +
-      `권한 모드: ${skipPermissions ? "⚡ 전체 허용" : "🔒 안전"}`,
+    t("status_title", {
+      session: sessionId || t("session_empty"),
+      dir: workingDir,
+      processing: isProcessing ? t("status_processing_yes") : t("status_processing_no"),
+      mode: skipPermissions ? t("status_mode_skip") : t("status_mode_safe"),
+    }),
     { parse_mode: "Markdown" }
   );
 });
@@ -1492,7 +1882,7 @@ bot.onText(/\/setdir(?:\s+(.+))?/, async (msg, match) => {
     pendingCommand = { type: "setdir" };
     await bot.sendMessage(
       chatId,
-      `📂 현재: \`${workingDir}\`\n\n어디로 이동할까요?`,
+      t("setdir_prompt", { dir: workingDir }),
       { parse_mode: "Markdown" }
     );
     return;
@@ -1502,7 +1892,7 @@ bot.onText(/\/setdir(?:\s+(.+))?/, async (msg, match) => {
   const resolved = resolveDirectory(newDir);
 
   if (!resolved) {
-    await bot.sendMessage(chatId, `❌ 디렉토리를 찾을 수 없습니다: \`${newDir}\``, {
+    await bot.sendMessage(chatId, t("setdir_not_found", { dir: newDir }), {
       parse_mode: "Markdown",
     });
     return;
@@ -1524,7 +1914,7 @@ bot.onText(/\/setdir(?:\s+(.+))?/, async (msg, match) => {
   }
   await bot.sendMessage(
     chatId,
-    `📂 작업 디렉토리 변경됨: \`${workingDir}\``,
+    t("setdir_changed", { dir: workingDir }),
     { parse_mode: "Markdown" }
   );
 });
@@ -1541,9 +1931,9 @@ bot.onText(/\/cancel/, async (msg) => {
     isProcessing = false;
     // 대기 중인 AskUserQuestion도 취소
     pendingSdkAsk = null;
-    await bot.sendMessage(chatId, "🛑 현재 작업이 취소되었습니다.");
+    await bot.sendMessage(chatId, t("cancel_done"));
   } else {
-    await bot.sendMessage(chatId, "실행 중인 작업이 없습니다.");
+    await bot.sendMessage(chatId, t("cancel_nothing"));
   }
 });
 
@@ -1551,7 +1941,7 @@ bot.onText(/\/cancel/, async (msg) => {
 bot.onText(/\/restart/, async (msg) => {
   if (!isAuthorized(msg)) return;
   const chatId = msg.chat.id;
-  await bot.sendMessage(chatId, "🔄 봇을 재시작합니다...");
+  await bot.sendMessage(chatId, t("restart_msg"));
   bot.stopPolling();
   releaseLock();
   process.exit(82);
@@ -1563,7 +1953,7 @@ bot.onText(/\/plan/, async (msg) => {
   if (isLockedCheck(msg)) return;
   const chatId = msg.chat.id;
   forcePlanMode = true;
-  await bot.sendMessage(chatId, "📝 플랜 모드 활성화됨.\n다음 메시지에 대해 계획을 먼저 작성합니다.");
+  await bot.sendMessage(chatId, t("plan_activated"));
 });
 
 // /lock <PIN> - 봇 잠금
@@ -1573,7 +1963,7 @@ bot.onText(/\/lock(?:\s+(.+))?/, async (msg, match) => {
   const pin = match[1]?.trim();
 
   if (!pin || pin.length < 4) {
-    await bot.sendMessage(chatId, "🔐 4자리 이상의 PIN을 입력하세요: `/lock 1234`", {
+    await bot.sendMessage(chatId, t("lock_pin_required"), {
       parse_mode: "Markdown",
     });
     return;
@@ -1581,7 +1971,7 @@ bot.onText(/\/lock(?:\s+(.+))?/, async (msg, match) => {
 
   lockPin = pin;
   isLocked = true;
-  await bot.sendMessage(chatId, "🔒 봇이 잠겼습니다. `/unlock <PIN>`으로 해제하세요.", {
+  await bot.sendMessage(chatId, t("lock_done"), {
     parse_mode: "Markdown",
   });
   log("[LOCK] 봇 잠김");
@@ -1593,7 +1983,7 @@ bot.onText(/\/unlock(?:\s+(.+))?/, async (msg, match) => {
   const chatId = msg.chat.id;
 
   if (!isLocked) {
-    await bot.sendMessage(chatId, "이미 잠금 해제 상태입니다.");
+    await bot.sendMessage(chatId, t("unlock_already"));
     return;
   }
 
@@ -1601,10 +1991,10 @@ bot.onText(/\/unlock(?:\s+(.+))?/, async (msg, match) => {
   if (pin === lockPin) {
     isLocked = false;
     lockPin = null;
-    await bot.sendMessage(chatId, "🔓 잠금이 해제되었습니다.");
+    await bot.sendMessage(chatId, t("unlock_done"));
     log("[LOCK] 잠금 해제");
   } else {
-    await bot.sendMessage(chatId, "❌ PIN이 일치하지 않습니다.");
+    await bot.sendMessage(chatId, t("unlock_wrong_pin"));
   }
 });
 
@@ -1612,7 +2002,7 @@ bot.onText(/\/unlock(?:\s+(.+))?/, async (msg, match) => {
 function isLockedCheck(msg) {
   if (!isLocked) return false;
   if (msg.text && (msg.text.startsWith("/unlock") || msg.text.startsWith("/lock"))) return false;
-  bot.sendMessage(msg.chat.id, "🔒 봇이 잠겨있습니다. `/unlock <PIN>`으로 해제하세요.", {
+  bot.sendMessage(msg.chat.id, t("bot_locked_unlock"), {
     parse_mode: "Markdown",
   }).catch(() => {});
   return true;
@@ -1635,7 +2025,7 @@ bot.onText(/\/files/, async (msg) => {
 
     await sendLongMessage(
       chatId,
-      `📂 \`${workingDir}\`\n\n${list || "(빈 디렉토리)"}`,
+      `📂 \`${workingDir}\`\n\n${list || t("files_empty")}`,
       { parse_mode: "Markdown" }
     );
   } catch (err) {
@@ -1652,7 +2042,7 @@ bot.onText(/\/read(?:\s+(.+))?/, async (msg, match) => {
 
   if (!fileName) {
     pendingCommand = { type: "read" };
-    await bot.sendMessage(chatId, "📄 읽을 파일명을 입력하세요:");
+    await bot.sendMessage(chatId, t("read_prompt"));
     return;
   }
 
@@ -1660,12 +2050,12 @@ bot.onText(/\/read(?:\s+(.+))?/, async (msg, match) => {
 
   // Path Traversal 방지: 작업 디렉토리 밖의 파일 접근 차단
   if (!filePath.startsWith(workingDir)) {
-    await bot.sendMessage(chatId, "⛔ 작업 디렉토리 밖의 파일에는 접근할 수 없습니다.");
+    await bot.sendMessage(chatId, t("read_path_traversal"));
     return;
   }
 
   if (!fs.existsSync(filePath)) {
-    await bot.sendMessage(chatId, `❌ 파일을 찾을 수 없습니다: \`${fileName}\``, {
+    await bot.sendMessage(chatId, t("read_not_found", { file: fileName }), {
       parse_mode: "Markdown",
     });
     return;
@@ -1674,17 +2064,16 @@ bot.onText(/\/read(?:\s+(.+))?/, async (msg, match) => {
   try {
     const stat = fs.statSync(filePath);
     if (stat.isDirectory()) {
-      await bot.sendMessage(chatId, `❌ \`${fileName}\`은(는) 디렉토리입니다.`, {
+      await bot.sendMessage(chatId, t("read_is_dir", { file: fileName }), {
         parse_mode: "Markdown",
       });
       return;
     }
 
-    // 바이너리 파일 체크 (1MB 이상이면 경고)
     if (stat.size > 1024 * 1024) {
       await bot.sendMessage(
         chatId,
-        `❌ 파일이 너무 큽니다 (${(stat.size / 1024 / 1024).toFixed(1)}MB). 1MB 이하 파일만 읽을 수 있습니다.`
+        t("read_too_large", { size: (stat.size / 1024 / 1024).toFixed(1) })
       );
       return;
     }
@@ -1697,7 +2086,7 @@ bot.onText(/\/read(?:\s+(.+))?/, async (msg, match) => {
       parse_mode: "Markdown",
     });
   } catch (err) {
-    await bot.sendMessage(chatId, `❌ 파일 읽기 오류: ${err.message}`);
+    await bot.sendMessage(chatId, t("read_error", { error: err.message }));
   }
 });
 
@@ -1710,7 +2099,7 @@ bot.onText(/\/preview(?:\s+(.+))?/, async (msg, match) => {
 
   if (!fileName) {
     pendingCommand = { type: "preview" };
-    await bot.sendMessage(chatId, "👁️ 미리볼 파일명을 입력하세요:");
+    await bot.sendMessage(chatId, t("preview_prompt"));
     return;
   }
 
@@ -1718,12 +2107,12 @@ bot.onText(/\/preview(?:\s+(.+))?/, async (msg, match) => {
 
   // Path Traversal 방지
   if (!filePath.startsWith(workingDir)) {
-    await bot.sendMessage(chatId, "⛔ 작업 디렉토리 밖의 파일에는 접근할 수 없습니다.");
+    await bot.sendMessage(chatId, t("read_path_traversal"));
     return;
   }
 
   if (!fs.existsSync(filePath)) {
-    await bot.sendMessage(chatId, `❌ 파일을 찾을 수 없습니다: \`${fileName}\``, {
+    await bot.sendMessage(chatId, t("preview_not_found", { file: fileName }), {
       parse_mode: "Markdown",
     });
     return;
@@ -1739,7 +2128,7 @@ bot.onText(/\/preview(?:\s+(.+))?/, async (msg, match) => {
       const url = await startTunnel();
       const relativePath = path.relative(workingDir, filePath).replace(/\\/g, "/");
       const previewUrl = `${url}/${relativePath}`;
-      await bot.sendMessage(chatId, `🌐 미리보기 링크:\n${previewUrl}\n\n터널 종료: /tunnel stop`);
+      await bot.sendMessage(chatId, t("preview_html_link", { url: previewUrl }));
 
     } else if (category === "image") {
       // Image: send as photo
@@ -1748,24 +2137,24 @@ bot.onText(/\/preview(?:\s+(.+))?/, async (msg, match) => {
 
     } else if (category === "executable") {
       // EXE: run → wait 3s → 창 앞으로 → screenshot → send
-      await bot.sendMessage(chatId, `▶️ \`${fileName}\` 실행 중...`, { parse_mode: "Markdown" });
+      await bot.sendMessage(chatId, t("preview_exe_running", { file: fileName }), { parse_mode: "Markdown" });
       const exeChild = exec(`"${filePath}"`, { cwd: workingDir });
       await new Promise((r) => setTimeout(r, 3000));
       await bringWindowToFront(exeChild.pid);
       const screenshotPath = path.join(os.tmpdir(), `preview_${Date.now()}.png`);
       await takeScreenshot(screenshotPath);
       await bot.sendChatAction(chatId, "upload_photo");
-      await bot.sendPhoto(chatId, screenshotPath, { caption: `📸 ${fileName} 실행 후 스크린샷` });
+      await bot.sendPhoto(chatId, screenshotPath, { caption: t("preview_exe_screenshot", { file: fileName }) });
       try { fs.unlinkSync(screenshotPath); } catch {}
 
     } else if (category === "script") {
       // Script: 3초 내 종료 → stdout, GUI면 → 스크린샷
       const runner = getScriptRunner(filePath);
-      await bot.sendMessage(chatId, `▶️ \`${fileName}\` 실행 중...`, { parse_mode: "Markdown" });
+      await bot.sendMessage(chatId, t("preview_script_running", { file: fileName }), { parse_mode: "Markdown" });
       const result = await runScriptSmart(`${runner} "${filePath}"`, workingDir);
       if (result.type === "text") {
-        const trimmed = result.output.length > 4000 ? result.output.substring(0, 4000) + "\n...(잘림)" : result.output;
-        await sendLongMessage(chatId, `💻 \`${fileName}\` 실행 결과:\n\`\`\`\n${trimmed}\n\`\`\``, {
+        const trimmed = result.output.length > 4000 ? result.output.substring(0, 4000) + "\n" + t("preview_output_trimmed") : result.output;
+        await sendLongMessage(chatId, t("preview_script_result", { file: fileName, output: trimmed }), {
           parse_mode: "Markdown",
         });
       } else {
@@ -1774,15 +2163,14 @@ bot.onText(/\/preview(?:\s+(.+))?/, async (msg, match) => {
         const screenshotPath = path.join(os.tmpdir(), `preview_${Date.now()}.png`);
         await takeScreenshot(screenshotPath);
         await bot.sendChatAction(chatId, "upload_photo");
-        await bot.sendPhoto(chatId, screenshotPath, { caption: `📸 ${fileName} (GUI)` });
+        await bot.sendPhoto(chatId, screenshotPath, { caption: t("preview_gui_caption", { file: fileName }) });
         try { fs.unlinkSync(screenshotPath); } catch {}
-        // 프로세스 PID 저장 + 종료 버튼 전송
         previewChildPid = result.child.pid;
-        await bot.sendMessage(chatId, `▶️ \`${fileName}\` 실행 중 (PID: ${result.child.pid})`, {
+        await bot.sendMessage(chatId, t("preview_gui_running", { file: fileName, pid: result.child.pid }), {
           parse_mode: "Markdown",
           reply_markup: {
             inline_keyboard: [[
-              { text: "🛑 프로세스 종료", callback_data: "preview_kill" },
+              { text: t("preview_btn_kill"), callback_data: "preview_kill" },
             ]],
           },
         });
@@ -1792,14 +2180,14 @@ bot.onText(/\/preview(?:\s+(.+))?/, async (msg, match) => {
       // Other: send as document
       const stat = fs.statSync(filePath);
       if (stat.size > 50 * 1024 * 1024) {
-        await bot.sendMessage(chatId, `❌ 파일이 너무 큽니다 (${(stat.size / 1024 / 1024).toFixed(1)}MB). 50MB 이하만 전송 가능합니다.`);
+        await bot.sendMessage(chatId, t("preview_too_large", { size: (stat.size / 1024 / 1024).toFixed(1) }));
         return;
       }
       await bot.sendChatAction(chatId, "upload_document");
       await bot.sendDocument(chatId, filePath, { caption: `📎 ${fileName}` });
     }
   } catch (err) {
-    await bot.sendMessage(chatId, `❌ 미리보기 오류: ${err.message}`);
+    await bot.sendMessage(chatId, t("preview_error", { error: err.message }));
   }
 });
 
@@ -1812,31 +2200,31 @@ bot.onText(/\/tunnel(?:\s+(.+))?/, async (msg, match) => {
 
   if (action === "status") {
     if (tunnelUrl) {
-      await bot.sendMessage(chatId, `🟢 터널 활성\n🌐 ${tunnelUrl}\n\n종료: /tunnel stop`);
+      await bot.sendMessage(chatId, t("tunnel_active", { url: tunnelUrl }));
     } else {
-      await bot.sendMessage(chatId, "⚪ 터널 비활성\n\n시작: /tunnel start");
+      await bot.sendMessage(chatId, t("tunnel_inactive"));
     }
   } else if (action === "start") {
     if (tunnelUrl) {
-      await bot.sendMessage(chatId, `🟢 이미 활성 상태입니다.\n🌐 ${tunnelUrl}`);
+      await bot.sendMessage(chatId, t("tunnel_already_active", { url: tunnelUrl }));
       return;
     }
     try {
-      await bot.sendMessage(chatId, "⏳ 터널 시작 중...");
+      await bot.sendMessage(chatId, t("tunnel_starting"));
       const url = await startTunnel();
-      await bot.sendMessage(chatId, `🟢 터널 시작됨!\n🌐 ${url}\n\n종료: /tunnel stop`);
+      await bot.sendMessage(chatId, t("tunnel_started", { url }));
     } catch (err) {
-      await bot.sendMessage(chatId, `❌ 터널 시작 실패: ${err.message}`);
+      await bot.sendMessage(chatId, t("tunnel_start_failed", { error: err.message }));
     }
   } else if (action === "stop") {
     if (!tunnelUrl && !tunnelProcess) {
-      await bot.sendMessage(chatId, "⚪ 터널이 이미 비활성 상태입니다.");
+      await bot.sendMessage(chatId, t("tunnel_already_inactive"));
       return;
     }
     stopTunnel();
-    await bot.sendMessage(chatId, "🔴 터널이 종료되었습니다.");
+    await bot.sendMessage(chatId, t("tunnel_stopped"));
   } else {
-    await bot.sendMessage(chatId, "사용법: `/tunnel [status|start|stop]`", { parse_mode: "Markdown" });
+    await bot.sendMessage(chatId, t("tunnel_usage"), { parse_mode: "Markdown" });
   }
 });
 
@@ -1852,7 +2240,7 @@ bot.onText(/\/resume(?:\s+(.+))?/, async (msg, match) => {
   if (sessions.length === 0) {
     await bot.sendMessage(
       chatId,
-      `이어받을 세션이 없습니다.\n📂 \`${workingDir}\``,
+      t("resume_no_sessions", { dir: workingDir }),
       { parse_mode: "Markdown" }
     );
     return;
@@ -1865,20 +2253,19 @@ bot.onText(/\/resume(?:\s+(.+))?/, async (msg, match) => {
     log(`[RESUME] 최신 세션 이어받기: ${sessionId}`);
     await bot.sendMessage(
       chatId,
-      `🔄 세션 이어받기 완료!\n\n` +
-        `📅 ${s.mtime.toLocaleString("ko-KR")}\n` +
-        (s.preview ? `💬 ${s.preview}\n` : "") +
-        `\n메시지를 보내면 이전 대화가 이어집니다.`,
+      t("session_resumed_full", {
+        time: s.mtime.toLocaleString(getLocale()),
+        preview: s.preview ? `💬 ${s.preview}\n` : "",
+      }),
     );
 
-    // 권한 모드가 아직 선택 안 됐으면 물어보기
     if (needsPermissionChoice) {
-      await bot.sendMessage(chatId, "권한 모드를 선택하세요:", {
+      await bot.sendMessage(chatId, t("select_perm_mode"), {
         reply_markup: {
           inline_keyboard: [
             [
-              { text: "🔒 안전 모드 (기본)", callback_data: "perm_safe" },
-              { text: "⚡ 전체 허용", callback_data: "perm_skip" },
+              { text: t("btn_safe_mode"), callback_data: "perm_safe" },
+              { text: t("btn_skip_mode"), callback_data: "perm_skip" },
             ],
           ],
         },
@@ -1889,7 +2276,7 @@ bot.onText(/\/resume(?:\s+(.+))?/, async (msg, match) => {
 
   // 세션 목록 표시 (인라인 키보드)
   const buttons = sessions.map((s, i) => {
-    const timeStr = s.mtime.toLocaleString("ko-KR", {
+    const timeStr = s.mtime.toLocaleString(getLocale(), {
       month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
     });
     const activeTag = s.active ? "🟢 " : "";
@@ -1902,7 +2289,7 @@ bot.onText(/\/resume(?:\s+(.+))?/, async (msg, match) => {
 
   await bot.sendMessage(
     chatId,
-    `🔄 이어받을 세션을 선택하세요:\n📂 \`${workingDir}\``,
+    t("resume_select", { dir: workingDir }),
     { parse_mode: "Markdown", reply_markup: { inline_keyboard: buttons } }
   );
 });
@@ -1934,9 +2321,9 @@ async function processMessage(chatId, prompt) {
     await bot.sendMessage(chatId, result.stats || "⚡", {
       reply_markup: {
         inline_keyboard: [[
-          { text: "🗑 대화 정리", callback_data: "quick_cleanup" },
-          { text: "💾 커밋 푸시", callback_data: "quick_commit" },
-          { text: "📋 요약", callback_data: "quick_summary" },
+          { text: t("btn_cleanup"), callback_data: "quick_cleanup" },
+          { text: t("btn_commit"), callback_data: "quick_commit" },
+          { text: t("btn_summary"), callback_data: "quick_summary" },
         ]],
       },
     });
@@ -1950,8 +2337,7 @@ async function processMessage(chatId, prompt) {
     let errorMsg = `❌ Claude Code 오류:\n\`\`\`\n${err.message}\n\`\`\``;
 
     if (err.message.includes("ENOENT") || err.message.includes("not found")) {
-      errorMsg +=
-        "\n\n💡 Claude Agent SDK가 올바르게 설치되어 있는지 확인하세요.";
+      errorMsg += t("error_sdk_hint");
     }
 
     await sendLongMessage(chatId, errorMsg, { parse_mode: "Markdown" });
@@ -2013,8 +2399,8 @@ function processPendingPhoto(textPrompt) {
   const { chatId, savePath } = pendingPhoto;
   pendingPhoto = null;
   const prompt = textPrompt
-    ? `이미지를 보내드립니다. 절대경로: ${savePath}\n\n${textPrompt}`
-    : `이미지를 보내드립니다. 절대경로: ${savePath}\n\n이 이미지를 확인해주세요.`;
+    ? t("photo_prompt_with_text", { path: savePath, text: textPrompt })
+    : t("photo_prompt_no_text", { path: savePath });
   processMessage(chatId, prompt);
   return true;
 }
@@ -2040,22 +2426,22 @@ bot.on("photo", async (msg) => {
 
     if (caption) {
       // 캡션이 있으면 즉시 처리
-      const prompt = `이미지를 보내드립니다. 절대경로: ${savePath}\n\n${caption}`;
+      const prompt = t("photo_prompt_with_text", { path: savePath, text: caption });
       processMessage(chatId, prompt);
     } else {
       // 캡션이 없으면 후속 텍스트 메시지 대기
       pendingPhoto = { chatId, savePath };
-      await bot.sendMessage(chatId, `📷 사진 수신 완료. 메시지를 입력하면 사진과 함께 전달됩니다.`, {
+      await bot.sendMessage(chatId, t("photo_received"), {
         disable_notification: true,
         reply_markup: {
           inline_keyboard: [[
-            { text: "📷 사진만 보내기", callback_data: "photo_only" },
+            { text: t("btn_photo_only"), callback_data: "photo_only" },
           ]],
         },
       });
     }
   } catch (err) {
-    await bot.sendMessage(chatId, `❌ 사진 저장 실패: ${err.message}`);
+    await bot.sendMessage(chatId, t("photo_save_failed", { error: err.message }));
   }
 });
 
@@ -2082,13 +2468,13 @@ bot.on("document", async (msg) => {
         log(`[UPLOAD] 파일 저장: ${savePath}`);
         // Claude 세션에 파일 경로 + 캡션 전달
         const prompt = caption
-          ? `파일을 보내드립니다. 절대경로: ${savePath}\n\n${caption}`
-          : `파일을 보내드립니다. 절대경로: ${savePath}\n\n이 파일을 확인해주세요.`;
+          ? t("doc_prompt_with_text", { path: savePath, text: caption })
+          : t("doc_prompt_no_text", { path: savePath });
         processMessage(chatId, prompt);
       });
     });
   } catch (err) {
-    await bot.sendMessage(chatId, `❌ 파일 저장 실패: ${err.message}`);
+    await bot.sendMessage(chatId, t("doc_save_failed", { error: err.message }));
   }
 });
 
@@ -2103,7 +2489,7 @@ bot.on("message", async (msg) => {
     if (!AUTHORIZED_USER_ID) {
       await bot.sendMessage(
         msg.chat.id,
-        `유저 ID: \`${msg.from.id}\`\n.env에 AUTHORIZED_USER_ID를 설정하세요.`,
+        t("user_id_info", { id: msg.from.id }),
         { parse_mode: "Markdown" }
       );
     }
@@ -2114,7 +2500,7 @@ bot.on("message", async (msg) => {
 
   // 잠금 체크
   if (isLocked) {
-    await bot.sendMessage(chatId, "🔒 봇이 잠겨있습니다. `/unlock <PIN>`으로 해제하세요.", {
+    await bot.sendMessage(chatId, t("bot_locked_unlock"), {
       parse_mode: "Markdown",
     });
     return;
@@ -2127,13 +2513,13 @@ bot.on("message", async (msg) => {
     pendingMessage = msg;
     await bot.sendMessage(
       chatId,
-      "먼저 권한 모드를 선택하세요:",
+      t("first_select_perm"),
       {
         reply_markup: {
           inline_keyboard: [
             [
-              { text: "🔒 안전 모드 (기본)", callback_data: "perm_safe" },
-              { text: "⚡ 전체 허용", callback_data: "perm_skip" },
+              { text: t("btn_safe_mode"), callback_data: "perm_safe" },
+              { text: t("btn_skip_mode"), callback_data: "perm_skip" },
             ],
           ],
         },
@@ -2159,10 +2545,10 @@ bot.on("message", async (msg) => {
           log("[DIR] 디렉토리 변경 → 세션 리셋");
         }
         if (expressServer) { stopPreviewServer(); startPreviewServer(); }
-        await bot.sendMessage(chatId, `📂 작업 디렉토리 변경됨: \`${workingDir}\``, { parse_mode: "Markdown" });
+        await bot.sendMessage(chatId, t("setdir_changed", { dir: workingDir }), { parse_mode: "Markdown" });
         log(`[DIR] ${workingDir}`);
       } else {
-        await bot.sendMessage(chatId, `❌ 디렉토리를 찾을 수 없습니다: \`${prompt}\``, { parse_mode: "Markdown" });
+        await bot.sendMessage(chatId, t("setdir_not_found", { dir: prompt }), { parse_mode: "Markdown" });
       }
       return;
     }
@@ -2209,7 +2595,7 @@ bot.on("message", async (msg) => {
   // 처리 중이면 대기열에 추가
   if (isProcessing) {
     messageQueue.push({ chatId, prompt });
-    await bot.sendMessage(chatId, `📋 대기열에 추가됨 (${messageQueue.length}번째)`, { disable_notification: true });
+    await bot.sendMessage(chatId, t("queue_added", { pos: messageQueue.length }), { disable_notification: true });
     return;
   }
 
@@ -2217,7 +2603,7 @@ bot.on("message", async (msg) => {
   let finalPrompt = prompt;
   if (forcePlanMode) {
     forcePlanMode = false;
-    finalPrompt = "반드시 EnterPlanMode를 사용해서 플랜을 먼저 작성하고 승인받은 후 진행해줘.\n\n" + prompt;
+    finalPrompt = t("plan_force_prefix") + prompt;
   }
 
   processMessage(chatId, finalPrompt);
@@ -2276,7 +2662,7 @@ function scheduleReconnect(delay) {
       pollingErrorCount = 0;
       log("[ONLINE] 네트워크 재연결 성공!");
       if (AUTHORIZED_USER_ID) {
-        bot.sendMessage(AUTHORIZED_USER_ID, "🟢 네트워크 재연결됨. 정상 동작합니다.").catch(() => {});
+        bot.sendMessage(AUTHORIZED_USER_ID, t("reconnected")).catch(() => {});
       }
     } catch (err) {
       const nextDelay = Math.min(delay * 2, RECONNECT_MAX_DELAY);
@@ -2300,7 +2686,7 @@ async function gracefulShutdown(signal) {
   stopTunnel();
 
   if (AUTHORIZED_USER_ID) {
-    await bot.sendMessage(AUTHORIZED_USER_ID, "🔴 봇이 꺼졌습니다.").catch(() => {});
+    await bot.sendMessage(AUTHORIZED_USER_ID, t("bot_stopped")).catch(() => {});
   }
 
   bot.stopPolling();
@@ -2322,23 +2708,21 @@ async function sendStartupMessage() {
     const sessions = findRecentSessions(workingDir, 3);
     const recent = sessions[0];
 
-    let text = `🟢 봇이 켜졌습니다. [${COMPUTER_NAME}]\n📂 \`${workingDir}\``;
+    let text = t("bot_started", { name: COMPUTER_NAME, dir: workingDir });
 
     if (recent) {
       const ago = Date.now() - recent.mtime.getTime();
       const mins = Math.floor(ago / 60000);
       const timeAgo = mins < 60
-        ? `${mins}분 전`
+        ? t("time_ago_min", { n: mins })
         : mins < 1440
-          ? `${Math.floor(mins / 60)}시간 전`
-          : `${Math.floor(mins / 1440)}일 전`;
+          ? t("time_ago_hour", { n: Math.floor(mins / 60) })
+          : t("time_ago_day", { n: Math.floor(mins / 1440) });
       const dirTag = recent.dirLabel ? `[${recent.dirLabel}] ` : "";
       if (recent.active) {
-        text += `\n\n🟢 **PC에서 진행 중인 세션 감지!**`;
-        text += `\n${dirTag}💬 ${recent.preview || "(내용 없음)"}`;
+        text += t("active_session_startup", { dirTag, preview: recent.preview || t("content_empty") });
       } else {
-        text += `\n\n💡 ${dirTag}세션 (${timeAgo}):`;
-        if (recent.preview) text += `\n💬 ${recent.preview}`;
+        text += t("recent_session_startup", { dirTag, timeAgo, preview: recent.preview || "" });
       }
     }
 
@@ -2346,16 +2730,16 @@ async function sendStartupMessage() {
 
     // 권한 모드 + 이어받기 버튼
     const buttons = [[
-      { text: "🔒 안전 모드", callback_data: "perm_safe" },
-      { text: "⚡ 전체 허용", callback_data: "perm_skip" },
+      { text: t("btn_safe_mode_short"), callback_data: "perm_safe" },
+      { text: t("btn_skip_mode"), callback_data: "perm_skip" },
     ]];
     if (recent && recent.active) {
-      buttons.push([{ text: "🟢 활성 세션 이어받기", callback_data: "resume_startup" }]);
+      buttons.push([{ text: t("btn_resume_active_session"), callback_data: "resume_startup" }]);
     } else if (recent) {
-      buttons.push([{ text: "🔄 이전 세션 이어받기", callback_data: "resume_startup" }]);
+      buttons.push([{ text: t("btn_resume_prev_session"), callback_data: "resume_startup" }]);
     }
 
-    await bot.sendMessage(AUTHORIZED_USER_ID, "권한 모드를 선택하세요:", {
+    await bot.sendMessage(AUTHORIZED_USER_ID, t("select_perm_mode"), {
       reply_markup: { inline_keyboard: buttons },
     });
   } catch {}
