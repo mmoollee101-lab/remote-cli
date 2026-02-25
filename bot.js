@@ -1231,7 +1231,9 @@ async function runClaude(prompt, chatId) {
         "- If a tool call fails, try a different approach instead of asking the user to fix permissions.",
         "- Plan mode (EnterPlanMode/ExitPlanMode) works through Telegram approval buttons. When you call ExitPlanMode, the user will see approve/reject buttons in Telegram.",
         "- Write files directly when needed. Do not hesitate to use Write, Edit, or Bash tools.",
-        "- Respond in the same language the user uses.",
+        currentLang === "ko"
+          ? "- ALWAYS respond in Korean (한국어) to the user. Use Korean for all explanations and messages."
+          : "- ALWAYS respond in English to the user. Use English for all explanations and messages.",
         "- When creating tables, ALWAYS use monospace code blocks (```...```) instead of markdown table syntax (|---|). Telegram does not render markdown tables properly.",
       ].join("\n"),
     },
