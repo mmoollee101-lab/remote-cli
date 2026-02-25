@@ -18,6 +18,68 @@ class TrayLauncher
     static System.Threading.Mutex appMutex;
     static readonly string AutoStartKey = "ClaudeTelegramBot";
 
+    // 시스템 + 사용자 PATH를 합쳐서 완전한 PATH 생성
+    static string GetFullPath()
+    {
+        string machinePath = Environment.GetEnvironmentVariable("PATH", EnvironmentVariableTarget.Machine) ?? "";
+        string userPath = Environment.GetEnvironmentVariable("PATH", EnvironmentVariableTarget.User) ?? "";
+        string processPath = Environment.GetEnvironmentVariable("PATH") ?? "";
+        // 중복 제거하면서 합치기
+        System.Collections.Generic.HashSet<string> seen = new System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        System.Collections.Generic.List<string> parts = new System.Collections.Generic.List<string>();
+        foreach (string src in new string[] { processPath, userPath, machinePath })
+        {
+            foreach (string dir in src.Split(';'))
+            {
+                string trimmed = dir.Trim();
+                if (trimmed.Length > 0 && seen.Add(trimmed))
+                    parts.Add(trimmed);
+            }
+        }
+        return string.Join(";", parts);
+    }
+
+    static string fullPath;
+
+    static string FindNodePath()
+    {
+        // fullPath에서 node.exe 검색
+        foreach (string dir in fullPath.Split(';'))
+        {
+            if (string.IsNullOrWhiteSpace(dir)) continue;
+            string candidate = Path.Combine(dir.Trim(), "node.exe");
+            if (File.Exists(candidate)) return candidate;
+        }
+        // 일반적인 설치 경로 확인
+        string[] commonPaths = {
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "nodejs", "node.exe"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "nodejs", "node.exe"),
+            @"C:\Program Files\nodejs\node.exe"
+        };
+        foreach (string p in commonPaths)
+        {
+            if (File.Exists(p)) return p;
+        }
+        return "node";
+    }
+
+    static ProcessStartInfo CreateNodeStartInfo(string botJs, string dir)
+    {
+        string nodePath = FindNodePath();
+        ProcessStartInfo psi = new ProcessStartInfo
+        {
+            FileName = nodePath,
+            Arguments = "\"" + botJs + "\"",
+            WorkingDirectory = dir,
+            WindowStyle = ProcessWindowStyle.Hidden,
+            CreateNoWindow = true,
+            UseShellExecute = false
+        };
+        // 완전한 PATH를 자식 프로세스에 전달
+        psi.EnvironmentVariables["PATH"] = fullPath;
+        return psi;
+    }
+
     [STAThread]
     static void Main()
     {
@@ -43,15 +105,16 @@ class TrayLauncher
 
         ParseEnv(Path.Combine(dir, ".env"));
 
-        // Start bot hidden via node
-        botProcess = Process.Start(new ProcessStartInfo
+        // 완전한 PATH 구성 (시스템 + 사용자)
+        fullPath = GetFullPath();
+        string nodePath = FindNodePath();
+        if (nodePath == "node")
         {
-            FileName = "node",
-            Arguments = "\"" + botJs + "\"",
-            WorkingDirectory = dir,
-            WindowStyle = ProcessWindowStyle.Hidden,
-            CreateNoWindow = true
-        });
+            MessageBox.Show("node.exe를 찾을 수 없습니다.\n\nNode.js가 설치되어 있는지 확인하세요.\nhttps://nodejs.org",
+                "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            return;
+        }
+        botProcess = Process.Start(CreateNodeStartInfo(botJs, dir));
 
         Application.EnableVisualStyles();
 
@@ -280,15 +343,8 @@ class TrayLauncher
 
         // Re-read .env in case it changed
         ParseEnv(Path.Combine(dir, ".env"));
-
-        botProcess = Process.Start(new ProcessStartInfo
-        {
-            FileName = "node",
-            Arguments = "\"" + botJs + "\"",
-            WorkingDirectory = dir,
-            WindowStyle = ProcessWindowStyle.Hidden,
-            CreateNoWindow = true
-        });
+        fullPath = GetFullPath(); // PATH도 갱신
+        botProcess = Process.Start(CreateNodeStartInfo(botJs, dir));
     }
 
     static void StopBot()
