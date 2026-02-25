@@ -8,19 +8,24 @@ A Telegram bot that gives you **full remote control** of Claude Code CLI from yo
 
 ## Why This Over Claude Code Remote Control?
 
-Anthropic's official [Remote Control](https://code.claude.com/docs/en/remote-control) (Feb 2026) lets you continue an existing terminal session from your phone. This project goes further:
+Anthropic's official [Remote Control](https://code.claude.com/docs/en/remote-control) (Feb 2026) lets you continue a local terminal session from your phone via claude.ai/code or the Claude mobile app. This project takes a different approach:
 
 | | **Claude Code Remote Control** | **This Bot** |
 |---|---|---|
-| Start sessions remotely | No — must start at PC first | **Yes — fully remote** |
-| Always-on | No — terminal must stay open | **Yes — runs as tray app 24/7** |
-| Send photos/files | No | **Yes — via Telegram** |
-| Custom commands | No | **Yes — /plan, /lock, /setdir, etc.** |
-| Push notifications | No | **Yes — Telegram push** |
-| Plan mode feedback | Basic | **Full — view plan content + text feedback on rejection** |
-| Cost | Pro/Max subscription required | **Same subscription, more features** |
+| How it works | Browser/app connects to local terminal | Telegram bot runs Claude Code SDK directly |
+| Start sessions remotely | Requires `claude remote-control` in terminal first | **Yes — fully remote, no terminal needed** |
+| Always-on | No — terminal process must stay open | **Yes — runs as tray app 24/7** |
+| Send photos/files from phone | No — text messages only | **Yes — photos & documents via Telegram** |
+| Custom commands | No — standard Claude Code interface | **Yes — /plan, /lock, /setdir, /preview, etc.** |
+| Push notifications | No — must check the app | **Yes — Telegram push notifications** |
+| Plan mode UX | Standard plan mode | **Enhanced — view plan content + text feedback on rejection** |
+| File preview | No | **Yes — HTML tunnel, image, script execution** |
+| Multi-language | No | **Yes — Korean/English switchable** |
+| Multi-device sync | Yes — terminal, browser, mobile in sync | Single Telegram chat |
+| Sandboxing | Optional (`--sandbox` flag) | No |
+| Plan | Pro/Max | **Same subscription (Max API)** |
 
-**TL;DR**: Remote Control = "continue a session away from your desk." This bot = "start, control, and monitor sessions without ever touching your desk."
+**TL;DR**: Remote Control = "continue a running terminal session from your phone." This bot = "start, control, and monitor sessions without ever touching your desk."
 
 ## Features
 
