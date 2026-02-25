@@ -191,7 +191,7 @@ const STRINGS = {
 
     // locked
     bot_locked: "🔒 봇이 잠겨있습니다.",
-    bot_locked_unlock: "🔒 봇이 잠겨있습니다. `/unlock <PIN>`으로 해제하세요.",
+    bot_locked_unlock: "🔒 봇이 잠겨있습니다. /unlock 으로 해제하세요.",
 
     // /status
     status_title: "📊 현재 상태\n\n세션 ID: `{{session}}`\n작업 디렉토리: `{{dir}}`\n처리 중: {{processing}}\n권한 모드: {{mode}}",
@@ -217,11 +217,13 @@ const STRINGS = {
     plan_force_prefix: "반드시 EnterPlanMode를 사용해서 플랜을 먼저 작성하고 승인받은 후 진행해줘.\n\n",
 
     // /lock, /unlock
-    lock_pin_required: "🔐 4자리 이상의 PIN을 입력하세요: `/lock 1234`",
-    lock_done: "🔒 봇이 잠겼습니다. `/unlock <PIN>`으로 해제하세요.",
+    lock_enter_pin: "🔐 PIN을 입력하세요 (4자리 이상):",
+    lock_pin_too_short: "❌ PIN은 4자리 이상이어야 합니다. 다시 입력하세요:",
+    lock_done: "🔒 봇이 잠겼습니다. /unlock 으로 해제하세요.",
+    unlock_enter_pin: "🔓 PIN을 입력하세요:",
     unlock_already: "이미 잠금 해제 상태입니다.",
     unlock_done: "🔓 잠금이 해제되었습니다.",
-    unlock_wrong_pin: "❌ PIN이 일치하지 않습니다.",
+    unlock_wrong_pin: "❌ PIN이 일치하지 않습니다. 다시 입력하세요:",
 
     // /files
     files_empty: "(빈 디렉토리)",
@@ -392,7 +394,7 @@ const STRINGS = {
     session_resumed_full: "🔄 Session resumed!\n\n📅 {{time}}\n{{preview}}\nSend a message to continue the previous conversation.",
 
     bot_locked: "🔒 Bot is locked.",
-    bot_locked_unlock: "🔒 Bot is locked. Use `/unlock <PIN>` to unlock.",
+    bot_locked_unlock: "🔒 Bot is locked. Use /unlock to unlock.",
 
     status_title: "📊 Current Status\n\nSession ID: `{{session}}`\nWorking directory: `{{dir}}`\nProcessing: {{processing}}\nPermission mode: {{mode}}",
     status_processing_yes: "⏳ Yes",
@@ -412,11 +414,13 @@ const STRINGS = {
     plan_activated: "📝 Plan mode activated.\nA plan will be created before the next message.",
     plan_force_prefix: "You MUST use EnterPlanMode to create a plan first, get approval, then proceed.\n\n",
 
-    lock_pin_required: "🔐 Please enter a PIN of 4+ digits: `/lock 1234`",
-    lock_done: "🔒 Bot is locked. Use `/unlock <PIN>` to unlock.",
+    lock_enter_pin: "🔐 Enter a PIN (4+ digits):",
+    lock_pin_too_short: "❌ PIN must be at least 4 characters. Try again:",
+    lock_done: "🔒 Bot is locked. Use /unlock to unlock.",
+    unlock_enter_pin: "🔓 Enter your PIN:",
     unlock_already: "Already unlocked.",
     unlock_done: "🔓 Bot has been unlocked.",
-    unlock_wrong_pin: "❌ PIN does not match.",
+    unlock_wrong_pin: "❌ PIN does not match. Try again:",
 
     files_empty: "(empty directory)",
 
@@ -581,6 +585,7 @@ let forcePlanMode = false;
 let isLocked = false;
 let lockPin = null;
 let pendingPlanRejection = null;
+let pendingLockAction = null; // { type: 'lock'|'unlock' }
 
 // ─── Preview/Tunnel 상태 ────────────────────────────────────────
 const PREVIEW_PORT = 18923;
@@ -1956,29 +1961,31 @@ bot.onText(/\/plan/, async (msg) => {
   await bot.sendMessage(chatId, t("plan_activated"));
 });
 
-// /lock <PIN> - 봇 잠금
-bot.onText(/\/lock(?:\s+(.+))?/, async (msg, match) => {
+// /lock - 봇 잠금 (2단계: PIN 별도 입력 → 메시지 삭제)
+bot.onText(/\/lock/, async (msg) => {
   if (!isAuthorized(msg)) return;
   const chatId = msg.chat.id;
-  const pin = match[1]?.trim();
-
-  if (!pin || pin.length < 4) {
-    await bot.sendMessage(chatId, t("lock_pin_required"), {
-      parse_mode: "Markdown",
-    });
+  // /lock 뒤에 PIN을 붙여 보냈으면 명령어 메시지 삭제 후 처리
+  const inlinePin = msg.text.replace(/^\/lock\s*/, "").trim();
+  if (inlinePin) {
+    try { await bot.deleteMessage(chatId, msg.message_id); } catch {}
+    if (inlinePin.length < 4) {
+      await bot.sendMessage(chatId, t("lock_pin_too_short"));
+      pendingLockAction = { type: "lock" };
+      return;
+    }
+    lockPin = inlinePin;
+    isLocked = true;
+    await bot.sendMessage(chatId, t("lock_done"));
+    log("[LOCK] 봇 잠김");
     return;
   }
-
-  lockPin = pin;
-  isLocked = true;
-  await bot.sendMessage(chatId, t("lock_done"), {
-    parse_mode: "Markdown",
-  });
-  log("[LOCK] 봇 잠김");
+  pendingLockAction = { type: "lock" };
+  await bot.sendMessage(chatId, t("lock_enter_pin"));
 });
 
-// /unlock <PIN> - 잠금 해제
-bot.onText(/\/unlock(?:\s+(.+))?/, async (msg, match) => {
+// /unlock - 잠금 해제 (2단계: PIN 별도 입력 → 메시지 삭제)
+bot.onText(/\/unlock/, async (msg) => {
   if (!isAuthorized(msg)) return;
   const chatId = msg.chat.id;
 
@@ -1987,15 +1994,23 @@ bot.onText(/\/unlock(?:\s+(.+))?/, async (msg, match) => {
     return;
   }
 
-  const pin = match[1]?.trim();
-  if (pin === lockPin) {
-    isLocked = false;
-    lockPin = null;
-    await bot.sendMessage(chatId, t("unlock_done"));
-    log("[LOCK] 잠금 해제");
-  } else {
-    await bot.sendMessage(chatId, t("unlock_wrong_pin"));
+  const inlinePin = msg.text.replace(/^\/unlock\s*/, "").trim();
+  if (inlinePin) {
+    try { await bot.deleteMessage(chatId, msg.message_id); } catch {}
+    if (inlinePin === lockPin) {
+      isLocked = false;
+      lockPin = null;
+      pendingLockAction = null;
+      await bot.sendMessage(chatId, t("unlock_done"));
+      log("[LOCK] 잠금 해제");
+    } else {
+      await bot.sendMessage(chatId, t("unlock_wrong_pin"));
+      pendingLockAction = { type: "unlock" };
+    }
+    return;
   }
+  pendingLockAction = { type: "unlock" };
+  await bot.sendMessage(chatId, t("unlock_enter_pin"));
 });
 
 // 잠금 체크 헬퍼 함수
@@ -2498,8 +2513,8 @@ bot.on("message", async (msg) => {
 
   const chatId = msg.chat.id;
 
-  // 잠금 체크
-  if (isLocked) {
+  // 잠금 체크 (PIN 입력 대기 중이면 통과)
+  if (isLocked && !pendingLockAction) {
     await bot.sendMessage(chatId, t("bot_locked_unlock"), {
       parse_mode: "Markdown",
     });
@@ -2559,6 +2574,36 @@ bot.on("message", async (msg) => {
       bot.emit("message", fakeMsg);
       return;
     }
+  }
+
+  // 잠금/해제 PIN 입력 대기 중이면 텍스트를 PIN으로 처리
+  if (pendingLockAction) {
+    const action = pendingLockAction;
+    // PIN 메시지 즉시 삭제
+    try { await bot.deleteMessage(chatId, msg.message_id); } catch {}
+    if (action.type === "lock") {
+      if (prompt.length < 4) {
+        await bot.sendMessage(chatId, t("lock_pin_too_short"));
+        return;
+      }
+      pendingLockAction = null;
+      lockPin = prompt;
+      isLocked = true;
+      await bot.sendMessage(chatId, t("lock_done"));
+      log("[LOCK] 봇 잠김");
+    } else {
+      // unlock
+      if (prompt === lockPin) {
+        pendingLockAction = null;
+        isLocked = false;
+        lockPin = null;
+        await bot.sendMessage(chatId, t("unlock_done"));
+        log("[LOCK] 잠금 해제");
+      } else {
+        await bot.sendMessage(chatId, t("unlock_wrong_pin"));
+      }
+    }
+    return;
   }
 
   // 플랜 거부 피드백 대기 중이면 텍스트를 피드백으로 처리
