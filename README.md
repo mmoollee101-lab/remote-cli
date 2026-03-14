@@ -29,19 +29,47 @@ Anthropic's official [Remote Control](https://code.claude.com/docs/en/remote-con
 
 ## Features
 
-- **Full Remote Control**: Start new sessions, send prompts, and manage files from Telegram
-- **Session Management**: Resume previous sessions, detect active CLI sessions, hand off between devices
-- **Plan Mode Support**: `/plan` command to force plan mode, view plan content before approval, provide text feedback on rejection
-- **Task Statistics**: See turn count, API cost, and duration after every task completion
-- **Progress Notifications**: Periodic updates during long-running tasks (every 2 minutes)
-- **Security**: Authorized user only + `/lock` PIN-based bot locking
-- **Photo/File Upload**: Send screenshots or documents directly to Claude via Telegram
-- **Multi-Language (i18n)**: Full Korean/English support — switch via tray menu, all UI strings translated
-- **Smart Directory Switching**: Natural language directory resolution (Korean supported)
-- **File Preview**: HTML preview via Cloudflare tunnel, image/script execution
-- **Table Rendering**: Auto-converts markdown tables to monospace code blocks for Telegram
-- **Tray App Launcher**: Windows system tray icon with auto-start on boot, language switching
-- **Network Resilience**: Auto-reconnect with exponential backoff on network drops
+### Core
+- **Full Remote Control** — Start new sessions, send prompts, and manage files from Telegram
+- **Claude Code SDK Integration** — Directly uses `@anthropic-ai/claude-agent-sdk` for native conversation management
+- **Session Management** — Resume previous sessions, detect active CLI sessions, hand off between devices
+- **Permission Modes** — Choose between Safe mode (approve each tool) or Full-bypass mode per session
+
+### Plan Mode
+- `/plan` command to force plan mode for the next message
+- View full plan content before approval
+- Approve / Reject with text feedback via inline buttons
+- Plan mode auto-resets after task completion
+
+### Task Monitoring
+- **Task Statistics** — Turn count, API cost, and duration displayed after every task
+- **Progress Notifications** — Periodic updates every 2 minutes during long-running tasks
+- **AskUserQuestion Support** — Inline buttons for Claude's interactive questions with custom "Other" text input
+
+### Security
+- **Authorized User Only** — Single-user authentication via Telegram user ID
+- **PIN Lock/Unlock** — `/lock` and `/unlock` with 2-step PIN confirmation and auto-delete of PIN messages
+- **Single Instance Lock** — PID-based lock file prevents duplicate bot processes
+
+### File & Media
+- **Photo/Document Upload** — Send screenshots or documents directly to Claude via Telegram
+- **Smart Upload Handling** — Waits for caption if photo sent without text, auto-forwards to Claude
+- **File Preview** — HTML preview via Cloudflare tunnel, image rendering, script execution (.py, .js, .bat)
+- **Screenshot Capture** — PowerShell-based screen capture on demand
+- **Upload Cleanup** — Auto-cleans upload directory after forwarding
+
+### UX
+- **Multi-Language (i18n)** — Full Korean/English support, switchable via tray menu
+- **Smart Directory Switching** — Natural language directory resolution with fuzzy matching (Korean supported)
+- **Table Rendering** — Auto-converts markdown tables to monospace code blocks for Telegram
+- **Safe Markdown** — Auto-fallback to plain text when Telegram can't parse markdown entities
+- **Network Resilience** — Auto-reconnect with exponential backoff on network drops
+
+### Windows Integration
+- **System Tray App** — C# launcher with tray icon, context menu, and notifications
+- **Auto-Start on Boot** — Toggle Windows startup via tray menu
+- **Language Switching** — Change i18n language from tray menu (Korean/English)
+- **Graceful Shutdown** — Proper cleanup of child processes and lock files
 
 ## Commands
 
@@ -56,12 +84,13 @@ Anthropic's official [Remote Control](https://code.claude.com/docs/en/remote-con
 | `/cancel` | Cancel the current running task |
 | `/files` | List files in current directory |
 | `/read <file>` | Read and send file contents |
-| `/preview <file>` | Preview HTML/images/scripts |
+| `/preview <file>` | Preview HTML/images/scripts via Cloudflare tunnel |
 | `/tunnel` | Manage Cloudflare tunnel (status/start/stop) |
 | `/lock <PIN>` | Lock the bot with a PIN |
 | `/unlock <PIN>` | Unlock the bot |
 | `/restart` | Restart the bot process |
 | *any text* | Forward as a prompt to Claude Code |
+| *photo/file* | Upload and forward to Claude as context |
 
 ## Setup
 
@@ -69,6 +98,7 @@ Anthropic's official [Remote Control](https://code.claude.com/docs/en/remote-con
 
 - Node.js v18+
 - [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) installed and authenticated
+- A Telegram bot token from [@BotFather](https://t.me/BotFather)
 
 ### 1. Create a Telegram Bot
 
@@ -82,11 +112,15 @@ Anthropic's official [Remote Control](https://code.claude.com/docs/en/remote-con
 cp .env.example .env
 ```
 
-Edit `.env` and set your bot token:
+Edit `.env`:
 
-```
+```env
 TELEGRAM_BOT_TOKEN=your_bot_token_here
+AUTHORIZED_USER_ID=your_user_id_here
+COMPUTER_NAME=MyPC
 ```
+
+> **Tip**: Run the bot first without `AUTHORIZED_USER_ID`, send `/start` in Telegram, and the bot will show your user ID.
 
 ### 3. Install & Run
 
@@ -95,21 +129,40 @@ npm install
 node bot.js
 ```
 
-### 4. Get Your User ID
+### 4. Windows Tray App (Optional)
 
-1. Open your bot on Telegram and send `/start`
-2. The bot will reply with your user ID
-3. Add it to `.env`:
+Run `setup.bat` for automated setup, or launch `dist\ClaudeTelegramBot.exe` directly. The tray app provides:
+
+- System tray icon with context menu
+- Auto-start on Windows boot (toggle in menu)
+- Language switching (Korean/English)
+- Open log file
+- Restart / Quit controls
+
+## Architecture
 
 ```
-AUTHORIZED_USER_ID=your_user_id_here
+bot.js              — Main bot: Telegram ↔ Claude Code SDK bridge
+launcher.cs         — Windows tray launcher (C# WinForms)
+setup.bat           — First-time setup script
+.env                — Configuration (tokens, user ID, computer name)
+bot-state.json      — Persisted state (working directory, language, session)
+bot.lock            — Single-instance PID lock
+uploads/            — Temporary upload directory (auto-cleaned)
+dist/               — Built tray app executable
 ```
 
-4. Restart the bot
+## Tech Stack
 
-### Windows Tray App (Optional)
+- **[Claude Code SDK](https://www.npmjs.com/package/@anthropic-ai/claude-agent-sdk)** — Claude Code conversation engine
+- **[node-telegram-bot-api](https://github.com/yagop/node-telegram-bot-api)** — Telegram Bot API client
+- **[Express](https://expressjs.com/)** — Local preview server
+- **[Cloudflared](https://github.com/nicedoc/cloudflared)** — Cloudflare tunnel for HTML preview
+- **[dotenv](https://github.com/motdotla/dotenv)** — Environment variable management
 
-Run `setup.bat` or launch `dist\Claude Telegram Bot.exe` for a system tray icon with auto-start support.
+## GitHub Releases
+
+Pre-built Windows executables are available on the [Releases](../../releases) page, built automatically via GitHub Actions.
 
 ## License
 
