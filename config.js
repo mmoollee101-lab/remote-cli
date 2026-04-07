@@ -1,0 +1,47 @@
+// config.js — 상수 및 기본값
+// Design Ref: §1.1 — 매직 넘버 제거, 설정값 중앙 관리
+module.exports = {
+  // 서버
+  PREVIEW_PORT: 18923,
+  WEBHOOK_PORT: 18924,
+
+  // 제한
+  MAX_MSG_LENGTH: 4096,
+  MAX_FILE_READ: 1024 * 1024,        // 1MB
+  MAX_FILE_SEND: 50 * 1024 * 1024,   // 50MB
+  MAX_UPLOAD_FILES: 10,
+  LOG_MAX_SIZE: 1024 * 1024,         // 1MB
+
+  // 타이밍
+  TYPING_INTERVAL: 4000,
+  PROGRESS_THROTTLE: 1500,
+  PERIODIC_UPDATE_INTERVAL: 120000,   // 2분
+  STREAMING_THROTTLE: 1200,           // 스트리밍 업데이트 간격
+  RECONNECT_BASE_DELAY: 5000,
+  RECONNECT_MAX_DELAY: 300000,
+
+  // SDK
+  DEFAULT_BUDGET_USD: 5.0,
+  DEFAULT_EFFORT: "medium",
+  COMPACTION_THRESHOLD: 100000,       // 토큰
+
+  // 보안
+  PIN_MIN_LENGTH: 4,
+
+  // 스크립트 실행
+  SCRIPT_TIMEOUT: 30000,
+  SCRIPT_GUI_DETECT_MS: 3000,
+  SCRIPT_MAX_OUTPUT: 1024 * 1024,
+
+  // 트리
+  TREE_DEFAULT_DEPTH: 3,
+  TREE_MAX_DEPTH: 5,
+
+  // Cron
+  CRON_MAX_JOBS: 20,
+
+  // Verbosity
+  VERBOSITY_QUIET: 0,
+  VERBOSITY_NORMAL: 1,
+  VERBOSITY_DETAILED: 2,
+};

@@ -23,6 +23,7 @@ class TrayLauncher
     static string botStatePath;
     static string botDir;
     static string botJsPath;
+    static bool setupNotified = false;
 
     // 시스템 + 사용자 PATH를 합쳐서 완전한 PATH 생성
     static string GetFullPath()
@@ -134,9 +135,10 @@ class TrayLauncher
             {
                 case "guide": return "📖 Guide";
                 case "log": return "📋 View Log";
-                case "env": return "📂 Edit .env";
+                case "env": return "⚙️ Settings";
                 case "autostart": return "🚀 Start with Windows";
                 case "restart": return "🔄 Restart";
+                case "rebuild": return "🔨 Rebuild & Restart";
                 case "quit": return "❌ Quit";
                 case "language": return "🌐 Language";
                 case "guide_title": return "Claude Telegram Bot - Guide";
@@ -145,6 +147,17 @@ class TrayLauncher
                 case "bot_not_found": return "bot.js not found.\n\nPath: {0}\n\nThis exe must be inside the dist/ folder.";
                 case "node_not_found": return "node.exe not found.\n\nPlease install Node.js.\nhttps://nodejs.org";
                 case "bot_stopped": return "🔴 Bot has been stopped.";
+                case "setup_needed": return ".env not configured.\nRight-click tray icon → Edit .env → set token → Restart.";
+                case "env_setup_title": return "Settings";
+                case "env_guide": return "Step 1. Telegram → @BotFather → /newbot → copy the token\n             → paste below → click Save\n\nStep 2. After bot starts, send /start in Telegram\n             → User ID appears → right-click tray → Settings\n             → paste User ID → Save";
+                case "env_token_hint": return "@BotFather → /newbot → copy the token";
+                case "env_userid_hint": return "Send /start to bot after first launch, ID appears in chat";
+                case "env_name_hint": return "Shown in Telegram. Useful for multiple PCs";
+                case "env_openai_hint": return "Optional — for voice messages. Get key at platform.openai.com → API Keys";
+                case "env_save": return "💾 Save";
+                case "env_cancel": return "Close";
+                case "env_saved": return "✅ Saved!";
+                case "env_token_required": return "Bot Token is required.";
             }
         }
         // Korean (default)
@@ -152,9 +165,10 @@ class TrayLauncher
         {
             case "guide": return "📖 설명서";
             case "log": return "📋 로그 보기";
-            case "env": return "📂 .env 편집";
+            case "env": return "⚙️ 설정";
             case "autostart": return "🚀 윈도우 시작 시 자동 실행";
             case "restart": return "🔄 재시작";
+            case "rebuild": return "🔨 재빌드 후 재시작";
             case "quit": return "❌ 종료";
             case "language": return "🌐 Language";
             case "guide_title": return "Claude Telegram Bot - 설명서";
@@ -163,6 +177,17 @@ class TrayLauncher
             case "bot_not_found": return "bot.js not found.\n\n경로: {0}\n\ndist/ 폴더 안에 이 exe가 있어야 합니다.";
             case "node_not_found": return "node.exe를 찾을 수 없습니다.\n\nNode.js가 설치되어 있는지 확인하세요.\nhttps://nodejs.org";
             case "bot_stopped": return "🔴 봇이 꺼졌습니다.";
+            case "setup_needed": return ".env가 설정되지 않았습니다.\n트레이 아이콘 우클릭 → .env 편집 → 토큰 입력 → 재시작";
+            case "env_setup_title": return "설정";
+            case "env_guide": return "1단계. 텔레그램 → @BotFather → /newbot → 토큰 복사\n             → 아래에 붙여넣기 → 저장\n\n2단계. 봇 시작 후 텔레그램에서 /start 전송\n             → 유저 ID가 표시됨 → 트레이 우클릭 → 설정\n             → 유저 ID 붙여넣기 → 저장";
+            case "env_token_hint": return "@BotFather → /newbot → 발급된 토큰 복사";
+            case "env_userid_hint": return "첫 실행 후 봇에 /start 보내면 채팅에 ID가 표시됩니다";
+            case "env_name_hint": return "텔레그램에 표시됨. 여러 PC 구분용";
+            case "env_openai_hint": return "선택 — 음성 메시지 지원용. platform.openai.com → API Keys에서 발급";
+            case "env_save": return "💾 저장";
+            case "env_cancel": return "닫기";
+            case "env_saved": return "✅ 저장됨!";
+            case "env_token_required": return "Bot Token은 필수입니다.";
         }
         return key;
     }
@@ -173,7 +198,7 @@ class TrayLauncher
         menu.Font = new Font("Malgun Gothic", 9);
         menu.Items.Add(L("guide"), null, (s, e) => ShowGuide());
         menu.Items.Add(L("log"), null, (s, e) => OpenLog());
-        menu.Items.Add(L("env"), null, (s, e) => OpenEnv(botDir));
+        menu.Items.Add(L("env"), null, (s, e) => ShowEnvSetupDialog());
         menu.Items.Add(new ToolStripSeparator());
         ToolStripMenuItem autoStartItem = new ToolStripMenuItem(L("autostart"));
         autoStartItem.Checked = IsAutoStartEnabled();
@@ -197,6 +222,7 @@ class TrayLauncher
         menu.Items.Add(langMenu);
 
         menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add(L("rebuild"), null, (s, e) => RebuildAndRestart());
         menu.Items.Add(L("restart"), null, (s, e) => RestartBot(botDir, botJsPath));
         menu.Items.Add(L("quit"), null, (s, e) => StopBot());
 
@@ -276,6 +302,21 @@ class TrayLauncher
                 {
                     RestartBot(botDir, botJsPath);
                 }
+                else if (botProcess.ExitCode == 2)
+                {
+                    // 설정 미비 (토큰 없음) — 최초 1회만 설정 UI
+                    if (!setupNotified)
+                    {
+                        setupNotified = true;
+                        ShowEnvSetupDialog();
+                    }
+                }
+                else if (botProcess.ExitCode == 1)
+                {
+                    // lock 충돌 등 — 트레이 유지, 자동 재시작 시도
+                    try { File.Delete(Path.Combine(botDir, "bot.lock")); } catch { }
+                    RestartBot(botDir, botJsPath);
+                }
                 else
                 {
                     StopBot();
@@ -287,247 +328,388 @@ class TrayLauncher
         Application.Run();
     }
 
-    static void ShowGuide()
+    static RichTextBox CreateGuideTab(string content, string[][] highlights)
     {
-        Form guide = new Form();
-        guide.Text = L("guide_title");
-        guide.Size = new Size(600, 750);
-        guide.StartPosition = FormStartPosition.CenterScreen;
-        guide.FormBorderStyle = FormBorderStyle.FixedDialog;
-        guide.MaximizeBox = false;
-        guide.MinimizeBox = false;
-
         RichTextBox rtb = new RichTextBox();
         rtb.ReadOnly = true;
         rtb.Dock = DockStyle.Fill;
-        rtb.BackColor = Color.White;
+        rtb.BackColor = Color.FromArgb(250, 250, 252);
         rtb.BorderStyle = BorderStyle.None;
-        rtb.Font = new Font("Consolas", 10f);
-
-        string subtitle = L("guide_subtitle");
-        string[] sections;
-
-        if (currentLang == "en")
-        {
-            rtb.Text = GetGuideEN();
-            sections = new string[] { "[Prerequisites]", "[Installation]", "[.env Settings]",
-                "[Multiple Computers]", "[Telegram Commands]", "[Photo/File Upload]",
-                "[Permission Modes]", "[Tray Menu]", "[Troubleshooting]" };
-        }
-        else
-        {
-            rtb.Text = GetGuideKO();
-            sections = new string[] { "[사전 요구사항]", "[설치 방법]", "[.env 설정]",
-                "[여러 컴퓨터에서 사용하기]", "[텔레그램 명령어]", "[사진/파일 보내기]",
-                "[권한 모드]", "[트레이 메뉴]", "[트러블슈팅]" };
-        }
-
-        // 제목 볼드 처리
-        rtb.Select(0, "Claude Telegram Bot".Length);
-        rtb.SelectionFont = new Font("Malgun Gothic", 14f, FontStyle.Bold);
-
-        rtb.Select("Claude Telegram Bot\r\n".Length, subtitle.Length);
-        rtb.SelectionFont = new Font("Malgun Gothic", 11f);
-        rtb.SelectionColor = Color.Gray;
+        rtb.Font = new Font("Malgun Gothic", 9.8f);
+        rtb.Text = content;
+        rtb.Cursor = Cursors.Default;
 
         string text = rtb.Text;
-        foreach (string sec in sections)
+        // bold highlights
+        if (highlights != null)
         {
-            int idx = text.IndexOf(sec);
-            if (idx >= 0)
+            foreach (string[] h in highlights)
             {
-                rtb.Select(idx, sec.Length);
-                rtb.SelectionFont = new Font("Malgun Gothic", 10.5f, FontStyle.Bold);
-                rtb.SelectionColor = Color.FromArgb(50, 50, 50);
+                int searchStart = 0;
+                while (searchStart < text.Length)
+                {
+                    int idx = text.IndexOf(h[0], searchStart);
+                    if (idx < 0) break;
+                    rtb.Select(idx, h[0].Length);
+                    rtb.SelectionFont = new Font("Malgun Gothic", 9.8f, FontStyle.Bold);
+                    if (h.Length > 1 && h[1] != null)
+                        rtb.SelectionColor = ColorTranslator.FromHtml(h[1]);
+                    searchStart = idx + h[0].Length;
+                }
             }
         }
 
         rtb.Select(0, 0);
-        rtb.Padding = new Padding(12, 12, 12, 12);
+        return rtb;
+    }
 
-        guide.Controls.Add(rtb);
+    static void ShowGuide()
+    {
+        Form guide = new Form();
+        guide.Text = L("guide_title");
+        guide.Size = new Size(580, 620);
+        guide.StartPosition = FormStartPosition.CenterScreen;
+        guide.FormBorderStyle = FormBorderStyle.FixedDialog;
+        guide.MaximizeBox = false;
+        guide.MinimizeBox = false;
+        guide.Font = new Font("Malgun Gothic", 9.5f);
+        guide.BackColor = Color.White;
+
+        // 헤더
+        Label lblTitle = new Label {
+            Text = "Claude Telegram Bot",
+            Location = new Point(20, 15),
+            AutoSize = true,
+            Font = new Font("Malgun Gothic", 15f, FontStyle.Bold)
+        };
+        Label lblSub = new Label {
+            Text = currentLang == "en"
+                ? "Remote control Claude Code CLI via Telegram"
+                : "텔레그램으로 Claude Code CLI를 원격 제어",
+            Location = new Point(22, 48),
+            AutoSize = true,
+            ForeColor = Color.FromArgb(120, 120, 120)
+        };
+        guide.Controls.Add(lblTitle);
+        guide.Controls.Add(lblSub);
+
+        // 탭
+        TabControl tabs = new TabControl();
+        tabs.Location = new Point(10, 75);
+        tabs.Size = new Size(545, 490);
+        tabs.Font = new Font("Malgun Gothic", 9.5f);
+
+        if (currentLang == "en")
+        {
+            // Quick Start
+            tabs.TabPages.Add(CreateTabPage("Quick Start", CreateGuideTab(
+                "  Getting Started\r\n" +
+                "\r\n" +
+                "  Before you begin, make sure you have:\r\n" +
+                "    \u2022 Node.js 20+  (nodejs.org)\r\n" +
+                "    \u2022 Claude Code CLI\r\n" +
+                "      npm i -g @anthropic-ai/claude-code\r\n" +
+                "    \u2022 Logged in to Claude Code (run 'claude' once)\r\n" +
+                "\r\n\r\n" +
+                "  Step 1  Create a Telegram Bot\r\n" +
+                "\r\n" +
+                "    1. Open Telegram, search @BotFather\r\n" +
+                "    2. Send /newbot, follow the prompts\r\n" +
+                "    3. Copy the bot token\r\n" +
+                "\r\n\r\n" +
+                "  Step 2  Configure Settings\r\n" +
+                "\r\n" +
+                "    1. Right-click tray icon \u2192 Settings\r\n" +
+                "    2. Paste your Bot Token \u2192 Save\r\n" +
+                "    3. In Telegram, send /start to your bot\r\n" +
+                "    4. Copy the User ID shown in chat\r\n" +
+                "    5. Right-click tray \u2192 Settings \u2192 paste User ID \u2192 Save\r\n" +
+                "\r\n\r\n" +
+                "  Step 3  Start Using\r\n" +
+                "\r\n" +
+                "    Send any message to your bot in Telegram.\r\n" +
+                "    Claude Code will process it and reply.\r\n",
+                new string[][] {
+                    new string[] { "Getting Started", "#2563EB" },
+                    new string[] { "Step 1  Create a Telegram Bot", "#2563EB" },
+                    new string[] { "Step 2  Configure Settings", "#2563EB" },
+                    new string[] { "Step 3  Start Using", "#2563EB" },
+                    new string[] { "Before you begin", null }
+                }
+            )));
+
+            // Commands
+            tabs.TabPages.Add(CreateTabPage("Commands", CreateGuideTab(
+                "  Telegram Commands\r\n" +
+                "\r\n" +
+                "  Session\r\n" +
+                "    /start        Start bot + show User ID\r\n" +
+                "    /new          New Claude session\r\n" +
+                "    /resume       Resume a terminal session\r\n" +
+                "    /cancel       Cancel current task\r\n" +
+                "    /status       Session, directory, budget info\r\n" +
+                "\r\n" +
+                "  Files\r\n" +
+                "    /setdir       Change working directory\r\n" +
+                "    /files        List files in directory\r\n" +
+                "    /read <file>  Read file contents\r\n" +
+                "    /preview      Preview (HTML/image/script)\r\n" +
+                "\r\n" +
+                "  Settings\r\n" +
+                "    /setbudget    Session cost cap (default $5)\r\n" +
+                "    /effort       low | medium | high | max\r\n" +
+                "    /lock <PIN>   Lock bot with PIN\r\n" +
+                "    /unlock <PIN> Unlock bot\r\n" +
+                "\r\n" +
+                "  Network\r\n" +
+                "    /tunnel       Tunnel management\r\n" +
+                "    /restart      Restart the bot\r\n" +
+                "    /plan         Enable plan mode\r\n",
+                new string[][] {
+                    new string[] { "Telegram Commands", "#2563EB" },
+                    new string[] { "Session", null }, new string[] { "Files", null },
+                    new string[] { "Settings", null }, new string[] { "Network", null }
+                }
+            )));
+
+            // Features
+            tabs.TabPages.Add(CreateTabPage("Features", CreateGuideTab(
+                "  Key Features\r\n" +
+                "\r\n" +
+                "  Photo & File Upload\r\n" +
+                "    \u2022 Photo with caption \u2192 sent to Claude immediately\r\n" +
+                "    \u2022 Photo without caption \u2192 waits for your message\r\n" +
+                "    \u2022 Documents (code, PDF) also supported\r\n" +
+                "\r\n" +
+                "  Permission Modes\r\n" +
+                "    \u2022 Safe Mode: read-only auto, rest needs approval\r\n" +
+                "    \u2022 Allow All: all tool uses auto-approved\r\n" +
+                "\r\n" +
+                "  Plan Mode  (/plan)\r\n" +
+                "    \u2022 Claude creates a plan before executing\r\n" +
+                "    \u2022 You approve/reject via Telegram buttons\r\n" +
+                "\r\n" +
+                "  Cost Control  (/setbudget)\r\n" +
+                "    \u2022 Set max cost per session (default $5)\r\n" +
+                "    \u2022 Session stops when budget is reached\r\n" +
+                "\r\n" +
+                "  Multiple PCs\r\n" +
+                "    \u2022 Create a separate bot per computer\r\n" +
+                "    \u2022 Set different COMPUTER_NAME in Settings\r\n" +
+                "    \u2022 Each PC gets its own Telegram chat\r\n",
+                new string[][] {
+                    new string[] { "Key Features", "#2563EB" },
+                    new string[] { "Photo & File Upload", null },
+                    new string[] { "Permission Modes", null },
+                    new string[] { "Plan Mode", null },
+                    new string[] { "Cost Control", null },
+                    new string[] { "Multiple PCs", null }
+                }
+            )));
+
+            // Troubleshooting
+            tabs.TabPages.Add(CreateTabPage("Help", CreateGuideTab(
+                "  Troubleshooting\r\n" +
+                "\r\n" +
+                "  Bot won't start\r\n" +
+                "    \u2022 Check that Node.js is installed and in PATH\r\n" +
+                "    \u2022 Check tray \u2192 View Log for errors\r\n" +
+                "    \u2022 Make sure 'claude' CLI works in terminal\r\n" +
+                "\r\n" +
+                "  Bot starts but Telegram doesn't respond\r\n" +
+                "    \u2022 Verify Bot Token is correct in Settings\r\n" +
+                "    \u2022 Verify User ID is correct (send /start)\r\n" +
+                "    \u2022 Check your internet connection\r\n" +
+                "\r\n" +
+                "  Claude errors or timeouts\r\n" +
+                "    \u2022 Run 'claude' in terminal to verify login\r\n" +
+                "    \u2022 Check if API subscription is active\r\n" +
+                "    \u2022 Try /new to start a fresh session\r\n" +
+                "\r\n" +
+                "  After changing settings\r\n" +
+                "    \u2022 Always restart via tray menu after changes\r\n" +
+                "\r\n\r\n" +
+                "  Tray Menu\r\n" +
+                "\r\n" +
+                "    \u2022 Guide: This window\r\n" +
+                "    \u2022 View Log: Open bot.log\r\n" +
+                "    \u2022 Settings: Configure bot token, user ID\r\n" +
+                "    \u2022 Auto Start: Run on Windows startup\r\n" +
+                "    \u2022 Rebuild: Recompile after code changes\r\n" +
+                "    \u2022 Restart / Quit\r\n",
+                new string[][] {
+                    new string[] { "Troubleshooting", "#2563EB" },
+                    new string[] { "Tray Menu", "#2563EB" },
+                    new string[] { "Bot won't start", null },
+                    new string[] { "Bot starts but Telegram doesn't respond", null },
+                    new string[] { "Claude errors or timeouts", null },
+                    new string[] { "After changing settings", null }
+                }
+            )));
+        }
+        else
+        {
+            // 빠른 시작
+            tabs.TabPages.Add(CreateTabPage("\uC2DC\uC791\uD558\uAE30", CreateGuideTab(
+                "  시작하기\r\n" +
+                "\r\n" +
+                "  사전 준비:\r\n" +
+                "    \u2022 Node.js 20 이상  (nodejs.org)\r\n" +
+                "    \u2022 Claude Code CLI 설치\r\n" +
+                "      npm i -g @anthropic-ai/claude-code\r\n" +
+                "    \u2022 Claude Code 로그인 완료 (터미널에서 claude 한번 실행)\r\n" +
+                "\r\n\r\n" +
+                "  1단계  텔레그램 봇 만들기\r\n" +
+                "\r\n" +
+                "    1. 텔레그램에서 @BotFather 검색\r\n" +
+                "    2. /newbot 전송 후 안내에 따라 봇 생성\r\n" +
+                "    3. 발급된 봇 토큰 복사\r\n" +
+                "\r\n\r\n" +
+                "  2단계  설정하기\r\n" +
+                "\r\n" +
+                "    1. 트레이 아이콘 우클릭 \u2192 설정\r\n" +
+                "    2. Bot Token 붙여넣기 \u2192 저장\r\n" +
+                "    3. 텔레그램에서 내 봇에게 /start 전송\r\n" +
+                "    4. 채팅에 표시된 유저 ID 복사\r\n" +
+                "    5. 트레이 우클릭 \u2192 설정 \u2192 유저 ID 붙여넣기 \u2192 저장\r\n" +
+                "\r\n\r\n" +
+                "  3단계  사용하기\r\n" +
+                "\r\n" +
+                "    텔레그램에서 봇에게 아무 메시지나 보내세요.\r\n" +
+                "    Claude Code가 처리하고 답변합니다.\r\n",
+                new string[][] {
+                    new string[] { "\uC2DC\uC791\uD558\uAE30", "#2563EB" },
+                    new string[] { "1\uB2E8\uACC4  \uD154\uB808\uADF8\uB7A8 \uBD07 \uB9CC\uB4E4\uAE30", "#2563EB" },
+                    new string[] { "2\uB2E8\uACC4  \uC124\uC815\uD558\uAE30", "#2563EB" },
+                    new string[] { "3\uB2E8\uACC4  \uC0AC\uC6A9\uD558\uAE30", "#2563EB" },
+                    new string[] { "\uC0AC\uC804 \uC900\uBE44:", null }
+                }
+            )));
+
+            // 명령어
+            tabs.TabPages.Add(CreateTabPage("\uBA85\uB839\uC5B4", CreateGuideTab(
+                "  텔레그램 명령어\r\n" +
+                "\r\n" +
+                "  세션\r\n" +
+                "    /start        봇 시작 + 유저 ID 확인\r\n" +
+                "    /new          새 Claude 세션 시작\r\n" +
+                "    /resume       터미널 세션 이어받기\r\n" +
+                "    /cancel       현재 작업 취소\r\n" +
+                "    /status       세션, 디렉토리, 비용 정보\r\n" +
+                "\r\n" +
+                "  파일\r\n" +
+                "    /setdir       작업 디렉토리 변경\r\n" +
+                "    /files        파일 목록 보기\r\n" +
+                "    /read <파일>  파일 내용 읽기\r\n" +
+                "    /preview      미리보기 (HTML/이미지/스크립트)\r\n" +
+                "\r\n" +
+                "  설정\r\n" +
+                "    /setbudget    세션 비용 상한 (기본 $5)\r\n" +
+                "    /effort       low | medium | high | max\r\n" +
+                "    /lock <PIN>   봇 잠금\r\n" +
+                "    /unlock <PIN> 잠금 해제\r\n" +
+                "\r\n" +
+                "  기타\r\n" +
+                "    /tunnel       터널 관리\r\n" +
+                "    /restart      봇 재시작\r\n" +
+                "    /plan         플랜 모드 활성화\r\n",
+                new string[][] {
+                    new string[] { "\uD154\uB808\uADF8\uB7A8 \uBA85\uB839\uC5B4", "#2563EB" },
+                    new string[] { "\uC138\uC158", null }, new string[] { "\uD30C\uC77C", null },
+                    new string[] { "\uC124\uC815", null }, new string[] { "\uAE30\uD0C0", null }
+                }
+            )));
+
+            // 기능
+            tabs.TabPages.Add(CreateTabPage("\uAE30\uB2A5", CreateGuideTab(
+                "  주요 기능\r\n" +
+                "\r\n" +
+                "  사진/파일 전송\r\n" +
+                "    \u2022 사진 + 캡션 \u2192 Claude에 바로 전달\r\n" +
+                "    \u2022 사진만 전송 \u2192 후속 메시지 대기\r\n" +
+                "    \u2022 문서 (코드, PDF 등) 지원\r\n" +
+                "\r\n" +
+                "  권한 모드\r\n" +
+                "    \u2022 안전 모드: 읽기만 자동 허용, 나머지 승인 필요\r\n" +
+                "    \u2022 전체 허용: 모든 도구 사용 자동 승인\r\n" +
+                "\r\n" +
+                "  플랜 모드  (/plan)\r\n" +
+                "    \u2022 Claude가 실행 전 계획을 먼저 작성\r\n" +
+                "    \u2022 텔레그램 버튼으로 승인/거부\r\n" +
+                "\r\n" +
+                "  비용 제어  (/setbudget)\r\n" +
+                "    \u2022 세션당 최대 비용 설정 (기본 $5)\r\n" +
+                "    \u2022 상한 도달 시 세션 자동 종료\r\n" +
+                "\r\n" +
+                "  여러 컴퓨터 사용\r\n" +
+                "    \u2022 컴퓨터마다 별도 봇 생성\r\n" +
+                "    \u2022 설정에서 다른 Computer Name 지정\r\n" +
+                "    \u2022 각 PC별 텔레그램 채팅방 사용\r\n",
+                new string[][] {
+                    new string[] { "\uC8FC\uC694 \uAE30\uB2A5", "#2563EB" },
+                    new string[] { "\uC0AC\uC9C4/\uD30C\uC77C \uC804\uC1A1", null },
+                    new string[] { "\uAD8C\uD55C \uBAA8\uB4DC", null },
+                    new string[] { "\uD50C\uB79C \uBAA8\uB4DC", null },
+                    new string[] { "\uBE44\uC6A9 \uC81C\uC5B4", null },
+                    new string[] { "\uC5EC\uB7EC \uCEF4\uD4E8\uD130 \uC0AC\uC6A9", null }
+                }
+            )));
+
+            // 문제 해결
+            tabs.TabPages.Add(CreateTabPage("\uBB38\uC81C\uD574\uACB0", CreateGuideTab(
+                "  문제 해결\r\n" +
+                "\r\n" +
+                "  봇이 안 켜져요\r\n" +
+                "    \u2022 Node.js가 설치되어 있고 PATH에 있는지 확인\r\n" +
+                "    \u2022 트레이 \u2192 로그 보기에서 오류 확인\r\n" +
+                "    \u2022 터미널에서 'claude' 명령이 되는지 확인\r\n" +
+                "\r\n" +
+                "  봇은 켜졌는데 텔레그램이 응답 없어요\r\n" +
+                "    \u2022 설정에서 Bot Token이 맞는지 확인\r\n" +
+                "    \u2022 유저 ID가 맞는지 확인 (/start 다시 전송)\r\n" +
+                "    \u2022 인터넷 연결 확인\r\n" +
+                "\r\n" +
+                "  Claude 오류/타임아웃\r\n" +
+                "    \u2022 터미널에서 'claude' 실행해 로그인 확인\r\n" +
+                "    \u2022 API 구독이 활성 상태인지 확인\r\n" +
+                "    \u2022 /new로 새 세션 시작해 보기\r\n" +
+                "\r\n" +
+                "  설정 변경 후\r\n" +
+                "    \u2022 반드시 트레이 메뉴에서 재시작\r\n" +
+                "\r\n\r\n" +
+                "  트레이 메뉴\r\n" +
+                "\r\n" +
+                "    \u2022 설명서: 이 화면\r\n" +
+                "    \u2022 로그 보기: bot.log 열기\r\n" +
+                "    \u2022 설정: 봇 토큰, 유저 ID 설정\r\n" +
+                "    \u2022 자동 실행: 윈도우 부팅 시 자동 시작\r\n" +
+                "    \u2022 재빌드: 코드 수정 후 재컴파일\r\n" +
+                "    \u2022 재시작 / 종료\r\n",
+                new string[][] {
+                    new string[] { "\uBB38\uC81C \uD574\uACB0", "#2563EB" },
+                    new string[] { "\uD2B8\uB808\uC774 \uBA54\uB274", "#2563EB" },
+                    new string[] { "\uBD07\uC774 \uC548 \uCF1C\uC838\uC694", null },
+                    new string[] { "\uBD07\uC740 \uCF1C\uC84C\uB294\uB370 \uD154\uB808\uADF8\uB7A8\uC774 \uC751\uB2F5 \uC5C6\uC5B4\uC694", null },
+                    new string[] { "Claude \uC624\uB958/\uD0C0\uC784\uC544\uC6C3", null },
+                    new string[] { "\uC124\uC815 \uBCC0\uACBD \uD6C4", null }
+                }
+            )));
+        }
+
+        guide.Controls.Add(tabs);
         guide.Show();
     }
 
-    static string GetGuideKO()
+    static TabPage CreateTabPage(string title, Control content)
     {
-        return
-            "Claude Telegram Bot\r\n" +
-            "설정 가이드\r\n" +
-            "\r\n" +
-            "텔레그램으로 Claude Code CLI를 원격 제어하는 봇입니다.\r\n" +
-            "\r\n" +
-            "\r\n" +
-            "[사전 요구사항]\r\n" +
-            "\r\n" +
-            "  - Node.js 20 이상 설치\r\n" +
-            "  - Claude Code CLI 설치\r\n" +
-            "    npm i -g @anthropic-ai/claude-code\r\n" +
-            "  - Claude Code에 로그인 완료 (claude 한번 실행)\r\n" +
-            "\r\n" +
-            "\r\n" +
-            "[설치 방법]\r\n" +
-            "\r\n" +
-            "  1. 이 폴더에서 npm install 실행\r\n" +
-            "  2. .env 파일을 편집 (트레이 메뉴 > .env 편집)\r\n" +
-            "\r\n" +
-            "\r\n" +
-            "[.env 설정]\r\n" +
-            "\r\n" +
-            "  TELEGRAM_BOT_TOKEN=봇토큰\r\n" +
-            "    @BotFather에서 /newbot으로 봇 생성 후 발급\r\n" +
-            "\r\n" +
-            "  AUTHORIZED_USER_ID=유저ID\r\n" +
-            "    봇 실행 후 텔레그램에서 /start 보내면 콘솔에 출력됨\r\n" +
-            "\r\n" +
-            "  COMPUTER_NAME=내PC\r\n" +
-            "    텔레그램에 표시될 컴퓨터 이름 (선택사항)\r\n" +
-            "    여러 컴퓨터에서 사용할 때 구분용\r\n" +
-            "\r\n" +
-            "\r\n" +
-            "[여러 컴퓨터에서 사용하기]\r\n" +
-            "\r\n" +
-            "  1. BotFather에서 컴퓨터마다 별도 봇 생성\r\n" +
-            "  2. 각 컴퓨터에 이 프로그램 설치\r\n" +
-            "  3. .env에 각자 다른 봇 토큰 + COMPUTER_NAME 설정\r\n" +
-            "  4. 텔레그램에서 채팅방 골라서 사용\r\n" +
-            "\r\n" +
-            "\r\n" +
-            "[텔레그램 명령어]\r\n" +
-            "\r\n" +
-            "  /start     봇 시작 + 유저 ID 확인\r\n" +
-            "  /new       새 세션 시작\r\n" +
-            "  /resume    터미널 세션 이어받기\r\n" +
-            "  /status    현재 상태 (세션, 디렉토리)\r\n" +
-            "  /setdir    작업 디렉토리 변경\r\n" +
-            "  /cancel    현재 작업 취소\r\n" +
-            "  /files     파일 목록 보기\r\n" +
-            "  /read      파일 내용 읽기\r\n" +
-            "  /preview   파일 미리보기 (HTML/이미지/스크립트)\r\n" +
-            "  /tunnel    터널 관리 (status/start/stop)\r\n" +
-            "  /restart   봇 재시작\r\n" +
-            "\r\n" +
-            "\r\n" +
-            "[사진/파일 보내기]\r\n" +
-            "\r\n" +
-            "  사진에 캡션을 달면 즉시 Claude에 전달됩니다.\r\n" +
-            "  캡션 없이 사진만 보내면 후속 메시지를 기다립니다.\r\n" +
-            "  → 메시지 입력 시 사진+텍스트가 함께 전달\r\n" +
-            "  → '사진만 보내기' 버튼으로 사진만 전달 가능\r\n" +
-            "\r\n" +
-            "\r\n" +
-            "[권한 모드]\r\n" +
-            "\r\n" +
-            "  안전 모드: 파일 읽기만 자동 허용, 나머지는 승인 필요\r\n" +
-            "  전체 허용: 모든 도구 사용 자동 허용\r\n" +
-            "\r\n" +
-            "\r\n" +
-            "[트레이 메뉴]\r\n" +
-            "\r\n" +
-            "  - 설명서: 이 화면\r\n" +
-            "  - 로그 보기: bot.log 열기\r\n" +
-            "  - .env 편집: 환경변수 설정\r\n" +
-            "  - 윈도우 시작 시 자동 실행: 부팅 시 자동 시작 토글\r\n" +
-            "  - Language: 한국어/English 전환\r\n" +
-            "  - 재시작 / 종료\r\n" +
-            "\r\n" +
-            "\r\n" +
-            "[트러블슈팅]\r\n" +
-            "\r\n" +
-            "  - 봇이 안 켜지면: node가 PATH에 있는지 확인\r\n" +
-            "  - .env 변경 후: 트레이 메뉴 > 재시작\r\n" +
-            "  - 로그 확인: 트레이 메뉴 > 로그 보기\r\n";
+        TabPage page = new TabPage(title);
+        page.BackColor = Color.White;
+        page.Padding = new Padding(8);
+        content.Dock = DockStyle.Fill;
+        page.Controls.Add(content);
+        return page;
     }
 
-    static string GetGuideEN()
-    {
-        return
-            "Claude Telegram Bot\r\n" +
-            "Setup Guide\r\n" +
-            "\r\n" +
-            "A bot that lets you remotely control Claude Code CLI via Telegram.\r\n" +
-            "\r\n" +
-            "\r\n" +
-            "[Prerequisites]\r\n" +
-            "\r\n" +
-            "  - Node.js 20 or later\r\n" +
-            "  - Claude Code CLI installed\r\n" +
-            "    npm i -g @anthropic-ai/claude-code\r\n" +
-            "  - Claude Code authenticated (run claude once)\r\n" +
-            "\r\n" +
-            "\r\n" +
-            "[Installation]\r\n" +
-            "\r\n" +
-            "  1. Run npm install in this folder\r\n" +
-            "  2. Edit .env file (Tray Menu > Edit .env)\r\n" +
-            "\r\n" +
-            "\r\n" +
-            "[.env Settings]\r\n" +
-            "\r\n" +
-            "  TELEGRAM_BOT_TOKEN=your_token\r\n" +
-            "    Create a bot via @BotFather /newbot\r\n" +
-            "\r\n" +
-            "  AUTHORIZED_USER_ID=your_id\r\n" +
-            "    Send /start to the bot, ID shown in console\r\n" +
-            "\r\n" +
-            "  COMPUTER_NAME=MyPC\r\n" +
-            "    Computer name shown in Telegram (optional)\r\n" +
-            "    Useful when running on multiple computers\r\n" +
-            "\r\n" +
-            "\r\n" +
-            "[Multiple Computers]\r\n" +
-            "\r\n" +
-            "  1. Create separate bots in BotFather for each PC\r\n" +
-            "  2. Install this program on each computer\r\n" +
-            "  3. Set different bot tokens + COMPUTER_NAME in .env\r\n" +
-            "  4. Use different Telegram chats for each\r\n" +
-            "\r\n" +
-            "\r\n" +
-            "[Telegram Commands]\r\n" +
-            "\r\n" +
-            "  /start     Start bot + show user ID\r\n" +
-            "  /new       Start new session\r\n" +
-            "  /resume    Resume terminal session\r\n" +
-            "  /status    Current status (session, directory)\r\n" +
-            "  /setdir    Change working directory\r\n" +
-            "  /cancel    Cancel current task\r\n" +
-            "  /files     List files\r\n" +
-            "  /read      Read file contents\r\n" +
-            "  /preview   Preview file (HTML/image/script)\r\n" +
-            "  /tunnel    Tunnel management (status/start/stop)\r\n" +
-            "  /restart   Restart bot\r\n" +
-            "\r\n" +
-            "\r\n" +
-            "[Photo/File Upload]\r\n" +
-            "\r\n" +
-            "  Add a caption to a photo to send it to Claude immediately.\r\n" +
-            "  Sending a photo without caption waits for a follow-up message.\r\n" +
-            "  → Message + photo are sent together\r\n" +
-            "  → Use 'Send photo only' button to send just the photo\r\n" +
-            "\r\n" +
-            "\r\n" +
-            "[Permission Modes]\r\n" +
-            "\r\n" +
-            "  Safe Mode: Only read-only tools auto-approved\r\n" +
-            "  Allow All: All tool uses auto-approved\r\n" +
-            "\r\n" +
-            "\r\n" +
-            "[Tray Menu]\r\n" +
-            "\r\n" +
-            "  - Guide: This screen\r\n" +
-            "  - View Log: Open bot.log\r\n" +
-            "  - Edit .env: Configure environment variables\r\n" +
-            "  - Start with Windows: Toggle auto-start on boot\r\n" +
-            "  - Language: Switch between Korean/English\r\n" +
-            "  - Restart / Quit\r\n" +
-            "\r\n" +
-            "\r\n" +
-            "[Troubleshooting]\r\n" +
-            "\r\n" +
-            "  - Bot won't start: Check if node is in PATH\r\n" +
-            "  - After .env changes: Tray Menu > Restart\r\n" +
-            "  - Check logs: Tray Menu > View Log\r\n";
-    }
 
     static void OpenLog()
     {
@@ -535,18 +717,259 @@ class TrayLauncher
             Process.Start("notepad", logPath);
     }
 
-    static void OpenEnv(string dir)
+    static void ShowEnvSetupDialog()
     {
-        string envPath = Path.Combine(dir, ".env");
-        if (!File.Exists(envPath))
+        string envPath = Path.Combine(botDir, ".env");
+
+        // 기존 .env 값 읽기
+        string existingToken = "";
+        string existingUserId = "";
+        string existingName = "";
+        string existingOpenAI = "";
+        if (File.Exists(envPath))
         {
-            string example = Path.Combine(dir, ".env.example");
-            if (File.Exists(example))
-                File.Copy(example, envPath);
-            else
-                File.WriteAllText(envPath, "TELEGRAM_BOT_TOKEN=\r\nAUTHORIZED_USER_ID=\r\nCOMPUTER_NAME=\r\n");
+            foreach (string line in File.ReadAllLines(envPath))
+            {
+                string trimmed = line.Trim();
+                if (trimmed.StartsWith("#")) continue;
+                int eq = trimmed.IndexOf('=');
+                if (eq < 0) continue;
+                string key = trimmed.Substring(0, eq).Trim();
+                string val = trimmed.Substring(eq + 1).Trim();
+                if (key == "TELEGRAM_BOT_TOKEN") existingToken = val;
+                if (key == "AUTHORIZED_USER_ID") existingUserId = val;
+                if (key == "COMPUTER_NAME") existingName = val;
+                if (key == "OPENAI_API_KEY") existingOpenAI = val;
+            }
         }
-        Process.Start("notepad", envPath);
+
+        Form form = new Form();
+        form.Text = "Claude Telegram Bot — " + L("env_setup_title");
+        form.Size = new Size(520, 620);
+        form.StartPosition = FormStartPosition.CenterScreen;
+        form.FormBorderStyle = FormBorderStyle.FixedDialog;
+        form.MaximizeBox = false;
+        form.MinimizeBox = false;
+        form.Font = new Font("Malgun Gothic", 9.5f);
+
+        int pad = 20;
+        int inputW = 450;
+        int y = pad;
+
+        // ─── 가이드 헤더 ───
+        Label lblTitle = new Label {
+            Text = "Claude Telegram Bot",
+            Location = new Point(pad, y),
+            AutoSize = true,
+            Font = new Font("Malgun Gothic", 14f, FontStyle.Bold)
+        };
+        y += 35;
+
+        Label lblGuide = new Label {
+            Text = L("env_guide"),
+            Location = new Point(pad, y),
+            Size = new Size(inputW, 100),
+            ForeColor = Color.FromArgb(80, 80, 80),
+            Font = new Font("Malgun Gothic", 8.8f)
+        };
+        y += 105;
+
+        // ─── 구분선 ───
+        Label separator = new Label {
+            Location = new Point(pad, y),
+            Size = new Size(inputW, 1),
+            BorderStyle = BorderStyle.Fixed3D
+        };
+        y += 15;
+
+        // ─── Bot Token ───
+        Label lblToken = new Label { Text = "Telegram Bot Token *", Location = new Point(pad, y), AutoSize = true, Font = new Font("Malgun Gothic", 9.5f, FontStyle.Bold) };
+        y += 22;
+        TextBox txtToken = new TextBox { Location = new Point(pad, y), Width = inputW, Text = existingToken };
+        y += 30;
+        Label lblTokenHint = new Label { Text = L("env_token_hint"), Location = new Point(pad, y), AutoSize = true, ForeColor = Color.Gray, Font = new Font("Malgun Gothic", 8f) };
+        y += 25;
+
+        // ─── User ID ───
+        Label lblUser = new Label { Text = "Authorized User ID", Location = new Point(pad, y), AutoSize = true, Font = new Font("Malgun Gothic", 9.5f, FontStyle.Bold) };
+        y += 22;
+        TextBox txtUser = new TextBox { Location = new Point(pad, y), Width = inputW, Text = existingUserId };
+        y += 30;
+        Label lblUserHint = new Label { Text = L("env_userid_hint"), Location = new Point(pad, y), AutoSize = true, ForeColor = Color.Gray, Font = new Font("Malgun Gothic", 8f) };
+        y += 25;
+
+        // ─── Computer Name ───
+        Label lblName = new Label { Text = "Computer Name", Location = new Point(pad, y), AutoSize = true };
+        y += 22;
+        TextBox txtName = new TextBox { Location = new Point(pad, y), Width = inputW, Text = string.IsNullOrEmpty(existingName) ? Environment.MachineName : existingName };
+        y += 30;
+        Label lblNameHint = new Label { Text = L("env_name_hint"), Location = new Point(pad, y), AutoSize = true, ForeColor = Color.Gray, Font = new Font("Malgun Gothic", 8f) };
+        y += 25;
+
+        // ─── OpenAI API Key ───
+        Label lblOpenAI = new Label { Text = "OpenAI API Key", Location = new Point(pad, y), AutoSize = true };
+        y += 22;
+        TextBox txtOpenAI = new TextBox { Location = new Point(pad, y), Width = inputW, Text = existingOpenAI };
+        y += 30;
+        Label lblOpenAIHint = new Label { Text = L("env_openai_hint"), Location = new Point(pad, y), AutoSize = true, ForeColor = Color.Gray, Font = new Font("Malgun Gothic", 8f) };
+        y += 40;
+
+        // ─── 버튼 ───
+        Button btnSave = new Button { Text = L("env_save"), Location = new Point(pad, y), Width = 160, Height = 38 };
+        btnSave.BackColor = Color.FromArgb(59, 130, 246);
+        btnSave.ForeColor = Color.White;
+        btnSave.FlatStyle = FlatStyle.Flat;
+        btnSave.Font = new Font("Malgun Gothic", 10f, FontStyle.Bold);
+        Button btnCancel = new Button { Text = L("env_cancel"), Location = new Point(pad + 170, y), Width = 100, Height = 38 };
+        btnCancel.FlatStyle = FlatStyle.Flat;
+
+        btnSave.Click += (s, e) =>
+        {
+            if (string.IsNullOrWhiteSpace(txtToken.Text))
+            {
+                MessageBox.Show(L("env_token_required"), "Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+            StringBuilder sb = new StringBuilder();
+            sb.AppendLine("# Telegram Bot Token (BotFather)");
+            sb.AppendLine("TELEGRAM_BOT_TOKEN=" + txtToken.Text.Trim());
+            sb.AppendLine();
+            sb.AppendLine("# Authorized Telegram User ID");
+            sb.AppendLine("AUTHORIZED_USER_ID=" + txtUser.Text.Trim());
+            sb.AppendLine();
+            sb.AppendLine("# Computer Name");
+            sb.AppendLine("COMPUTER_NAME=" + (string.IsNullOrWhiteSpace(txtName.Text) ? Environment.MachineName : txtName.Text.Trim()));
+            if (!string.IsNullOrWhiteSpace(txtOpenAI.Text))
+            {
+                sb.AppendLine();
+                sb.AppendLine("# OpenAI API Key (Voice)");
+                sb.AppendLine("OPENAI_API_KEY=" + txtOpenAI.Text.Trim());
+            }
+            File.WriteAllText(envPath, sb.ToString(), Encoding.UTF8);
+            btnSave.Text = L("env_saved");
+            btnSave.BackColor = Color.FromArgb(34, 197, 94);
+            Timer resetTimer = new Timer { Interval = 2000 };
+            resetTimer.Tick += (s2, e2) => {
+                btnSave.Text = L("env_save");
+                btnSave.BackColor = Color.FromArgb(59, 130, 246);
+                resetTimer.Stop();
+                resetTimer.Dispose();
+            };
+            resetTimer.Start();
+            RestartBot(botDir, botJsPath);
+        };
+
+        btnCancel.Click += (s, e) => form.Close();
+
+        form.Controls.AddRange(new Control[] {
+            lblTitle, lblGuide, separator,
+            lblToken, txtToken, lblTokenHint,
+            lblUser, txtUser, lblUserHint,
+            lblName, txtName, lblNameHint,
+            lblOpenAI, txtOpenAI, lblOpenAIHint,
+            btnSave, btnCancel
+        });
+        form.AcceptButton = btnSave;
+        form.CancelButton = btnCancel;
+        form.ShowDialog();
+    }
+
+    static void RebuildAndRestart()
+    {
+        // 1. 봇 프로세스 종료
+        try
+        {
+            if (botProcess != null && !botProcess.HasExited)
+            {
+                botProcess.Kill();
+                botProcess.WaitForExit(3000);
+            }
+        }
+        catch { }
+
+        // 2. npm install (새 의존성 설치)
+        try
+        {
+            ProcessStartInfo npmPsi = new ProcessStartInfo
+            {
+                FileName = "cmd.exe",
+                Arguments = "/c npm install --production",
+                WorkingDirectory = botDir,
+                WindowStyle = ProcessWindowStyle.Hidden,
+                CreateNoWindow = true,
+                UseShellExecute = false
+            };
+            npmPsi.EnvironmentVariables["PATH"] = fullPath;
+            Process npmProc = Process.Start(npmPsi);
+            npmProc.WaitForExit(60000);
+        }
+        catch { }
+
+        // 3. launcher.cs → exe 재빌드
+        string cscPath = @"C:\Windows\Microsoft.NET\Framework\v4.0.30319\csc.exe";
+        string launcherCs = Path.Combine(botDir, "launcher.cs");
+        string icoPath = Path.Combine(botDir, "app.ico");
+        string exePath = System.Reflection.Assembly.GetExecutingAssembly().Location;
+        string tempExe = exePath + ".new";
+
+        if (File.Exists(cscPath) && File.Exists(launcherCs))
+        {
+            try
+            {
+                string args = "/nologo /target:winexe /out:\"" + tempExe + "\" \"" + launcherCs + "\"";
+                if (File.Exists(icoPath))
+                    args = "/nologo /target:winexe /win32icon:\"" + icoPath + "\" /out:\"" + tempExe + "\" \"" + launcherCs + "\"";
+
+                ProcessStartInfo cscPsi = new ProcessStartInfo
+                {
+                    FileName = cscPath,
+                    Arguments = args,
+                    WorkingDirectory = botDir,
+                    WindowStyle = ProcessWindowStyle.Hidden,
+                    CreateNoWindow = true,
+                    UseShellExecute = false
+                };
+                Process cscProc = Process.Start(cscPsi);
+                cscProc.WaitForExit(30000);
+
+                if (cscProc.ExitCode == 0 && File.Exists(tempExe))
+                {
+                    // 자기 자신을 교체하고 재실행
+                    string batPath = Path.Combine(botDir, "dist", "_rebuild.bat");
+                    File.WriteAllText(batPath,
+                        "@echo off\r\n" +
+                        "timeout /t 1 /nobreak >nul\r\n" +
+                        "move /y \"" + tempExe + "\" \"" + exePath + "\"\r\n" +
+                        "start \"\" \"" + exePath + "\"\r\n" +
+                        "del \"%~f0\"\r\n",
+                        Encoding.ASCII);
+
+                    Process.Start(new ProcessStartInfo
+                    {
+                        FileName = batPath,
+                        WindowStyle = ProcessWindowStyle.Hidden,
+                        CreateNoWindow = true,
+                        UseShellExecute = true
+                    });
+
+                    trayIcon.Visible = false;
+                    trayIcon.Dispose();
+                    Application.Exit();
+                    return;
+                }
+                else
+                {
+                    // 빌드 실패 시 임시 파일 정리
+                    try { File.Delete(tempExe); } catch { }
+                }
+            }
+            catch { }
+        }
+
+        // exe 재빌드 실패 또는 csc 없으면 봇만 재시작
+        ParseEnv(Path.Combine(botDir, ".env"));
+        fullPath = GetFullPath();
+        botProcess = Process.Start(CreateNodeStartInfo(botJsPath, botDir));
     }
 
     static void RestartBot(string dir, string botJs)
