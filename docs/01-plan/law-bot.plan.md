@@ -20,7 +20,7 @@
 |------|------|------|
 | 텔레그램 봇 토큰 | ⬜ | BotFather에서 생성 |
 | 법제처 API 키 (LAW_OC) | ⬜ | https://open.law.go.kr 무료 발급 |
-| Anthropic API 키 | ⬜ | Claude 호출용 |
+| Claude 구독 (Max/Pro) | ✅ | 기존 구독 활용, Agent SDK 사용 |
 
 ## 아키텍처
 
@@ -52,7 +52,7 @@ Claude AI (system prompt: 법률 전문가)
 - [ ] LRU 캐시 (검색 1시간, 본문 24시간)
 
 ### Phase 2 — Claude AI 연동
-- [ ] Claude Agent SDK 통합
+- [ ] Claude Agent SDK 통합 (remote-cli와 동일 방식, 기존 구독 활용)
 - [ ] 법률 전문가 시스템 프롬프트 설계
   - 한국 법률 전문가 역할
   - 쉬운 한국어로 설명
@@ -86,7 +86,7 @@ Claude AI (system prompt: 법률 전문가)
 |------|------|------|
 | 런타임 | Node.js 20+ | 기존 remote-cli와 동일 |
 | 텔레그램 | node-telegram-bot-api | 검증됨 |
-| AI | Claude Agent SDK | tool use 지원 |
+| AI | Claude Agent SDK | 기존 구독 활용, tool use 지원 |
 | 법률 API | law.go.kr DRF | 무료, 공식 |
 | 빌드 | pkg | 포터블 exe |
 

@@ -1,0 +1,414 @@
+{
+  "timestamp": "2026-04-07T13:08:31.874Z",
+  "reason": "compaction",
+  "status": {
+    "version": "3.0",
+    "lastUpdated": "2026-04-07T13:03:58.454Z",
+    "activeFeatures": [
+      "remote-cli"
+    ],
+    "primaryFeature": "remote-cli",
+    "features": {
+      "remote-cli": {
+        "phase": "do",
+        "phaseNumber": 3,
+        "matchRate": null,
+        "iterationCount": 0,
+        "requirements": [],
+        "documents": {},
+        "timestamps": {
+          "started": "2026-04-07T12:02:29.537Z",
+          "lastUpdated": "2026-04-07T13:03:58.454Z"
+        },
+        "lastFile": "C:\\Users\\sky\\Desktop\\remote-cli\\launcher.cs",
+        "stateMachine": {
+          "currentState": "do",
+          "previousState": null,
+          "stateHistory": [],
+          "retryCount": 0,
+          "maxRetries": 5,
+          "circuitBreakerOpen": false
+        },
+        "metrics": {
+          "qualityScore": null,
+          "conventionCompliance": null,
+          "apiCompliance": null,
+          "cycleTimeMs": null,
+          "iterationEfficiency": null
+        },
+        "phaseTimestamps": {},
+        "automationLevel": 2
+      }
+    },
+    "pipeline": {
+      "currentPhase": 1,
+      "level": "Dynamic",
+      "phaseHistory": []
+    },
+    "session": {
+      "startedAt": "2026-04-07T12:02:29.537Z",
+      "onboardingCompleted": false,
+      "lastActivity": "2026-04-07T13:03:58.454Z"
+    },
+    "history": [
+      {
+        "timestamp": "2026-04-07T12:02:29.537Z",
+        "feature": "remote-cli",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-04-07T12:02:33.885Z",
+        "feature": "remote-cli",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-04-07T12:02:42.832Z",
+        "feature": "remote-cli",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-04-07T12:02:50.812Z",
+        "feature": "remote-cli",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-04-07T12:02:56.437Z",
+        "feature": "remote-cli",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-04-07T12:03:05.000Z",
+        "feature": "remote-cli",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-04-07T12:03:16.731Z",
+        "feature": "remote-cli",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-04-07T12:03:25.109Z",
+        "feature": "remote-cli",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-04-07T12:03:30.506Z",
+        "feature": "remote-cli",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-04-07T12:03:35.741Z",
+        "feature": "remote-cli",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-04-07T12:03:43.813Z",
+        "feature": "remote-cli",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-04-07T12:03:57.020Z",
+        "feature": "remote-cli",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-04-07T12:04:04.198Z",
+        "feature": "remote-cli",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-04-07T12:04:08.919Z",
+        "feature": "remote-cli",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-04-07T12:04:13.374Z",
+        "feature": "remote-cli",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-04-07T12:04:21.188Z",
+        "feature": "remote-cli",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-04-07T12:04:38.474Z",
+        "feature": "remote-cli",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-04-07T12:04:50.917Z",
+        "feature": "remote-cli",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-04-07T12:04:55.075Z",
+        "feature": "remote-cli",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-04-07T12:05:07.380Z",
+        "feature": "remote-cli",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-04-07T12:05:14.655Z",
+        "feature": "remote-cli",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-04-07T12:19:28.814Z",
+        "feature": "remote-cli",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-04-07T12:19:32.542Z",
+        "feature": "remote-cli",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-04-07T12:19:38.212Z",
+        "feature": "remote-cli",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-04-07T12:19:59.814Z",
+        "feature": "remote-cli",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-04-07T12:24:02.054Z",
+        "feature": "remote-cli",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-04-07T12:24:09.805Z",
+        "feature": "remote-cli",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-04-07T12:24:17.792Z",
+        "feature": "remote-cli",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-04-07T12:25:35.825Z",
+        "feature": "remote-cli",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-04-07T12:25:42.383Z",
+        "feature": "remote-cli",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-04-07T12:25:48.408Z",
+        "feature": "remote-cli",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-04-07T12:26:14.605Z",
+        "feature": "remote-cli",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-04-07T12:26:21.823Z",
+        "feature": "remote-cli",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-04-07T12:26:27.612Z",
+        "feature": "remote-cli",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-04-07T12:26:33.581Z",
+        "feature": "remote-cli",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-04-07T12:26:47.190Z",
+        "feature": "remote-cli",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-04-07T12:28:41.569Z",
+        "feature": "remote-cli",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-04-07T12:30:11.794Z",
+        "feature": "remote-cli",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-04-07T12:30:24.597Z",
+        "feature": "remote-cli",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-04-07T12:30:34.103Z",
+        "feature": "remote-cli",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-04-07T12:42:45.582Z",
+        "feature": "remote-cli",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-04-07T12:44:27.513Z",
+        "feature": "remote-cli",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-04-07T12:44:34.509Z",
+        "feature": "remote-cli",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-04-07T12:44:45.682Z",
+        "feature": "remote-cli",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-04-07T12:44:49.763Z",
+        "feature": "remote-cli",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-04-07T12:45:47.934Z",
+        "feature": "remote-cli",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-04-07T12:45:52.641Z",
+        "feature": "remote-cli",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-04-07T12:47:10.523Z",
+        "feature": "remote-cli",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-04-07T12:49:18.539Z",
+        "feature": "remote-cli",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-04-07T12:49:23.273Z",
+        "feature": "remote-cli",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-04-07T12:49:28.076Z",
+        "feature": "remote-cli",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-04-07T12:50:59.970Z",
+        "feature": "remote-cli",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-04-07T12:51:05.367Z",
+        "feature": "remote-cli",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-04-07T12:58:06.439Z",
+        "feature": "remote-cli",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-04-07T12:58:50.173Z",
+        "feature": "remote-cli",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-04-07T13:03:49.047Z",
+        "feature": "remote-cli",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-04-07T13:03:58.454Z",
+        "feature": "remote-cli",
+        "phase": "do",
+        "action": "updated"
+      }
+    ],
+    "stateMachine": {
+      "defaultWorkflow": "default",
+      "activeWorkflows": {},
+      "totalTransitions": 0
+    },
+    "automation": {
+      "globalLevel": 2,
+      "trustScore": 40,
+      "pendingApprovals": 0,
+      "lastGateResult": null
+    },
+    "team": {
+      "enabled": true,
+      "stateFile": ".bkit/runtime/agent-state.json",
+      "eventsFile": ".bkit/runtime/agent-events.jsonl"
+    }
+  }
+}

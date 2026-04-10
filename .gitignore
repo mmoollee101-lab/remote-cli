@@ -2,5 +2,9 @@ node_modules/
 .env
 bot.log
 bot-state.json
+bot.lock
+*.lock
+law-bot/law-bot.log
 dist/
 nul
+.claude/settings.local.json

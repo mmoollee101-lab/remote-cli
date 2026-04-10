@@ -1,7 +1,16 @@
 {
-  "currentFeature": "v2-upgrade",
-  "phase": "do",
-  "matchRate": 0,
+  "currentFeature": "law-bot",
+  "phase": "check",
+  "matchRate": 92,
   "iterationCount": 0,
-  "startedAt": "2026-04-07T00:00:00Z"
+  "startedAt": "2026-04-10T00:00:00Z",
+  "completed": {
+    "remote-cli": {
+      "phase": "completed",
+      "matchRate": 95,
+      "iterationCount": 0,
+      "startedAt": "2026-04-07T00:00:00Z",
+      "completedAt": "2026-04-10T00:00:00Z"
+    }
+  }
 }
