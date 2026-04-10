@@ -1474,12 +1474,21 @@ class TrayLauncher
 
         btnImport.Click += (s, e) =>
         {
-            string clip = "";
-            try { clip = Clipboard.GetText().Trim(); } catch { }
-            if (string.IsNullOrEmpty(clip)) { MessageBox.Show("클립보드가 비어있습니다.", "알림"); return; }
+            Form dlg = new Form { Text = "설정 가져오기", Width = 480, Height = 220, StartPosition = FormStartPosition.CenterParent, FormBorderStyle = FormBorderStyle.FixedDialog, MaximizeBox = false, MinimizeBox = false };
+            Label lbl = new Label { Text = "내보내기 코드를 붙여넣으세요:", Location = new Point(12, 12), AutoSize = true };
+            TextBox txtCode = new TextBox { Location = new Point(12, 36), Width = 440, Height = 80, Multiline = true, ScrollBars = ScrollBars.Vertical };
+            Button btnApply = new Button { Text = "적용", Location = new Point(270, 130), Width = 88, Height = 32, DialogResult = DialogResult.OK };
+            Button btnClose = new Button { Text = "취소", Location = new Point(364, 130), Width = 88, Height = 32, DialogResult = DialogResult.Cancel };
+            dlg.AcceptButton = btnApply;
+            dlg.CancelButton = btnClose;
+            dlg.Controls.AddRange(new Control[] { lbl, txtCode, btnApply, btnClose });
+
+            if (dlg.ShowDialog() != DialogResult.OK) return;
+            string input = txtCode.Text.Trim();
+            if (string.IsNullOrEmpty(input)) { MessageBox.Show("코드가 비어있습니다.", "알림"); return; }
             try
             {
-                string decoded = Encoding.UTF8.GetString(Convert.FromBase64String(clip));
+                string decoded = Encoding.UTF8.GetString(Convert.FromBase64String(input));
                 var parts = decoded.Split('|');
                 foreach (var part in parts)
                 {
@@ -1768,7 +1777,7 @@ class TrayLauncher
                         "move /y \"" + tempExe + "\" \"" + exePath + "\"\r\n" +
                         "start \"\" \"" + exePath + "\"\r\n" +
                         "del \"%~f0\"\r\n",
-                        Encoding.ASCII);
+                        Encoding.Default);
 
                     Process.Start(new ProcessStartInfo
                     {
