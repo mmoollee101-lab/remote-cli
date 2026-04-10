@@ -1325,7 +1325,7 @@ class TrayLauncher
 
         Form form = new Form();
         form.Text = L("lawbot") + " \u2014 " + L("lawbot_env_title");
-        form.Size = new Size(520, 780);
+        form.Size = new Size(520, 830);
         form.StartPosition = FormStartPosition.CenterScreen;
         form.FormBorderStyle = FormBorderStyle.FixedDialog;
         form.MaximizeBox = false;
@@ -1445,6 +1445,68 @@ class TrayLauncher
         Button btnCancel = new Button { Text = L("env_cancel"), Location = new Point(pad + 170, y), Width = 100, Height = 38 };
         btnCancel.FlatStyle = FlatStyle.Flat;
 
+        y += 50;
+        Button btnExport = new Button { Text = "📤 설정 내보내기", Location = new Point(pad, y), Width = 220, Height = 34 };
+        btnExport.FlatStyle = FlatStyle.Flat;
+        btnExport.Font = new Font("Malgun Gothic", 9f);
+        btnExport.ForeColor = Color.FromArgb(59, 130, 246);
+        Button btnImport = new Button { Text = "📥 설정 가져오기", Location = new Point(pad + 230, y), Width = 220, Height = 34 };
+        btnImport.FlatStyle = FlatStyle.Flat;
+        btnImport.Font = new Font("Malgun Gothic", 9f);
+        btnImport.ForeColor = Color.FromArgb(59, 130, 246);
+
+        btnExport.Click += (s, e) =>
+        {
+            string admin = txtAdmin.Text.Trim();
+            string members = txtUsers.Text.Trim();
+            string combined = admin;
+            if (members.Length > 0) combined += "," + members;
+            string raw = "TELEGRAM_BOT_TOKEN=" + txtToken.Text.Trim()
+                       + "|LAW_OC=" + txtOC.Text.Trim()
+                       + "|AUTHORIZED_USERS=" + combined;
+            string encoded = Convert.ToBase64String(Encoding.UTF8.GetBytes(raw));
+            Clipboard.SetText(encoded);
+            btnExport.Text = "✅ 클립보드에 복사됨";
+            Timer t = new Timer { Interval = 2000 };
+            t.Tick += (s2, e2) => { btnExport.Text = "📤 설정 내보내기"; t.Stop(); t.Dispose(); };
+            t.Start();
+        };
+
+        btnImport.Click += (s, e) =>
+        {
+            string clip = "";
+            try { clip = Clipboard.GetText().Trim(); } catch { }
+            if (string.IsNullOrEmpty(clip)) { MessageBox.Show("클립보드가 비어있습니다.", "알림"); return; }
+            try
+            {
+                string decoded = Encoding.UTF8.GetString(Convert.FromBase64String(clip));
+                var parts = decoded.Split('|');
+                foreach (var part in parts)
+                {
+                    int eq = part.IndexOf('=');
+                    if (eq < 0) continue;
+                    string key = part.Substring(0, eq);
+                    string val = part.Substring(eq + 1);
+                    if (key == "TELEGRAM_BOT_TOKEN") txtToken.Text = val;
+                    else if (key == "LAW_OC") txtOC.Text = val;
+                    else if (key == "AUTHORIZED_USERS")
+                    {
+                        string[] ids = val.Split(',');
+                        txtAdmin.Text = ids.Length > 0 ? ids[0].Trim() : "";
+                        txtUsers.Text = ids.Length > 1 ? string.Join(",", ids, 1, ids.Length - 1).Trim() : "";
+                    }
+                }
+                btnImport.Text = "✅ 설정 적용됨";
+                Timer t = new Timer { Interval = 2000 };
+                t.Tick += (s2, e2) => { btnImport.Text = "📥 설정 가져오기"; t.Stop(); t.Dispose(); };
+                t.Start();
+            }
+            catch
+            {
+                MessageBox.Show("올바른 설정 코드가 아닙니다.\n내보내기로 생성된 코드를 붙여넣으세요.", "오류", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+        };
+
         btnSave.Click += (s, e) =>
         {
             if (string.IsNullOrWhiteSpace(txtToken.Text))
@@ -1509,7 +1571,8 @@ class TrayLauncher
             lblAdmin, txtAdmin, lblAdminHint,
             lblUsers, txtUsers, lblUsersHint,
             sep3, chkAutoStart, lblAutoHint,
-            btnSave, btnCancel
+            btnSave, btnCancel,
+            btnExport, btnImport
         });
         form.AcceptButton = btnSave;
         form.CancelButton = btnCancel;
