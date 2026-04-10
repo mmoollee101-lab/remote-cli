@@ -276,6 +276,7 @@ bot.onText(/\/start/, async (msg) => {
     "/category \u2014 \ubd84\uc57c\ubcc4 \ube60\ub978 \uc9c8\ubb38",
     "/new \u2014 \uc0c8 \ub300\ud654 \uc2dc\uc791",
     "/help \u2014 \uc0ac\uc6a9\ubc95 \uc548\ub0b4",
+    ...(String(userId) === ADMIN_ID ? ["/invite \u2014 \uc0ac\uc6a9\uc790 \ucd08\ub300 \uc548\ub0b4\ubb38 \ubcf4\uae30"] : []),
   ].join("\n");
   safeSend(msg.chat.id, welcome);
 });
@@ -304,6 +305,30 @@ bot.onText(/\/new/, (msg) => {
   if (!isAuthorized(msg.from.id)) return;
   sessions.delete(String(msg.from.id));
   safeSend(msg.chat.id, "\uc0c8 \ub300\ud654\ub97c \uc2dc\uc791\ud569\ub2c8\ub2e4. \uc9c8\ubb38\ud574\uc8fc\uc138\uc694!");
+});
+
+// \u2500\u2500\u2500 \uc0ac\uc6a9\uc790 \ucd08\ub300 \uc548\ub0b4 (\uad00\ub9ac\uc790 \uc804\uc6a9) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+bot.onText(/\/invite/, async (msg) => {
+  if (String(msg.from.id) !== ADMIN_ID) return;
+  const me = await bot.getMe();
+  const guide = [
+    "\ud83d\udcda \ubc95\ub960 \ub3c4\uc6b0\ubbf8 \ubd07 \uc548\ub0b4",
+    "",
+    "\ubc95\ub960 \uad00\ub828 \uad81\uae08\ud55c \uc810\uc744 AI\uac00 \uad00\ub828 \ubc95\ub839\uacfc \ud310\ub840\ub97c \uac80\uc0c9\ud574\uc11c \uc26c\uac8c \uc124\uba85\ud574\ub4dc\ub9bd\ub2c8\ub2e4.",
+    "",
+    "\ud83d\udd17 \uc2dc\uc791 \ubc29\ubc95:",
+    `1. \ud154\ub808\uadf8\ub7a8\uc5d0\uc11c @${me.username} \uac80\uc0c9`,
+    "2. '\uc2dc\uc791' \ubc84\ud2bc \ud074\ub9ad",
+    "3. \uc2b9\uc778 \ud6c4 \ubc14\ub85c \uc9c8\ubb38 \uac00\ub2a5!",
+    "",
+    "\ud83d\udca1 \uc9c8\ubb38 \uc608\uc2dc:",
+    '\u2022 "\uc784\ub300\ucc28 \ubcf4\uc99d\uae08 \ubabb \ubc1b\uc73c\uba74 \uc5b4\ub5bb\uac8c \ud574?"',
+    '\u2022 "\uad50\ud1b5\uc0ac\uace0 \ud569\uc758\uae08 \uae30\uc900\uc774 \uc5b4\ub5bb\uac8c \ub3fc?"',
+    '\u2022 "\uc0c1\uc18d \ud3ec\uae30 \uc808\ucc28\uac00 \uc5b4\ub5bb\uac8c \ub418\ub098?"',
+    "",
+    "\u26a0\ufe0f \ubc95\uc801 \uc870\uc5b8\uc774 \uc544\ub2cc \ucc38\uace0 \uc815\ubcf4\ub97c \uc81c\uacf5\ud569\ub2c8\ub2e4.",
+  ].join("\n");
+  await bot.sendMessage(msg.chat.id, guide);
 });
 
 // \u2500\u2500\u2500 \ud038 \uce74\ud14c\uace0\ub9ac \ubc84\ud2bc \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
@@ -521,8 +546,17 @@ process.on("uncaughtException", (err) => {
 
 // ─── 시작 ─────────────────────────────────────────────────────────
 loadSDK().then(async () => {
-  console.log("[Bot] 법률 도우미 봇 시작!");
-  console.log(`[인증] 허용 사용자: ${AUTHORIZED_USERS.length > 0 ? AUTHORIZED_USERS.join(", ") : "전체 허용"}`);
+  console.log("[Bot] \ubc95\ub960 \ub3c4\uc6b0\ubbf8 \ubd07 \uc2dc\uc791!");
+  console.log(`[\uc778\uc99d] \ud5c8\uc6a9 \uc0ac\uc6a9\uc790: ${AUTHORIZED_USERS.length > 0 ? AUTHORIZED_USERS.join(", ") : "\uc804\uccb4 \ud5c8\uc6a9"}`);
 
-  // 시작 알림은 launcher에서 SendLawBotTelegram()으로 전송
+  // \ud154\ub808\uadf8\ub7a8 \uba85\ub839\uc5b4 \uba54\ub274 \ub4f1\ub85d
+  bot.setMyCommands([
+    { command: "start", description: "\ubd07 \uc2dc\uc791 / \uc548\ub0b4" },
+    { command: "category", description: "\ubd84\uc57c\ubcc4 \ube60\ub978 \uc9c8\ubb38" },
+    { command: "new", description: "\uc0c8 \ub300\ud654 \uc2dc\uc791" },
+    { command: "help", description: "\uc0ac\uc6a9\ubc95 \uc548\ub0b4" },
+    { command: "invite", description: "\uc0ac\uc6a9\uc790 \ucd08\ub300 \uc548\ub0b4\ubb38 (\uad00\ub9ac\uc790)" },
+  ]);
+
+  // \uc2dc\uc791 \uc54c\ub9bc\uc740 launcher\uc5d0\uc11c SendLawBotTelegram()\uc73c\ub85c \uc804\uc1a1
 });
