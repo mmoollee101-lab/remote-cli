@@ -296,13 +296,13 @@ const MAX_MSG_LENGTH = CONFIG.MAX_MSG_LENGTH;
 
 async function safeSend(chatId, text, options = {}) {
   try {
-    await bot.sendMessage(chatId, text, options);
+    return await bot.sendMessage(chatId, text, options);
   } catch (err) {
     if (err.message && err.message.includes("can't parse entities")) {
       // 마크다운 파싱 실패 → 일반 텍스트로 재전송
       const fallback = { ...options };
       delete fallback.parse_mode;
-      await bot.sendMessage(chatId, text, fallback);
+      return await bot.sendMessage(chatId, text, fallback);
     } else {
       throw err;
     }
@@ -729,6 +729,9 @@ async function runClaude(prompt, chatId) {
           ? "- ALWAYS respond in Korean (한국어) to the user. Use Korean for all explanations and messages."
           : "- ALWAYS respond in English to the user. Use English for all explanations and messages.",
         "- When creating tables, ALWAYS use monospace code blocks (```...```) instead of markdown table syntax (|---|). Telegram does not render markdown tables properly.",
+        // bkit Feature Usage 리포트: 텔레그램 환경에서는 한 줄 약식만 사용 (CLI와 시각 구분용)
+        "- 응답 끝에 bkit Feature Usage 리포트를 출력해야 한다면, 반드시 단 한 줄 형식만 사용하세요: `📱 bkit: Tool1, Tool2`. 박스/구분선/`Used:`/`Not Used:`/`Recommended:` 같은 다중 라인 섹션은 절대 출력하지 마세요. 응답 본문이 1~2줄짜리 단순 답변이면 bkit 리포트 자체를 생략하세요.",
+        "- 위 약식 형식은 사용자가 텔레그램 응답과 컴퓨터 CLI 응답을 시각적으로 구분하기 위함입니다 (CLI 응답은 풀 버전 박스 형식을 씁니다). 절대 풀 버전을 출력하지 마세요.",
       ].join("\n"),
     },
     tools: { type: "preset", preset: "claude_code" },
@@ -769,6 +772,14 @@ async function runClaude(prompt, chatId) {
     let lastStreamUpdate = 0;
     let afterToolUse = false; // 도구 사용 후 텍스트 중복 방지용
 
+    // 즉시 "thinking" 메시지를 보내서 사용자에게 즉각 피드백 제공
+    // 첫 텍스트 또는 도구 사용 도착 시 재활용됨 (in-place 편집)
+    let initialMsgId = null;
+    try {
+      const initial = await bot.sendMessage(chatId, "🤔 생각하는 중...", { parse_mode: "Markdown" });
+      initialMsgId = initial?.message_id || null;
+    } catch {}
+
     for await (const message of q) {
       if (message.session_id) {
         newSessionId = message.session_id;
@@ -796,11 +807,12 @@ async function runClaude(prompt, chatId) {
         for (const block of message.message.content) {
           // 중간 텍스트 → 스트리밍 업데이트
           if (block.type === "text" && block.text?.trim()) {
-            // 진행 메시지가 있으면 먼저 삭제
-            if (progressMsgId) {
-              try { await bot.deleteMessage(chatId, progressMsgId); } catch {}
-              progressMsgId = null;
+            // initial thinking 메시지가 있으면 streaming 메시지로 재활용 (즉시 in-place 편집)
+            if (initialMsgId && !streamingMsgId) {
+              streamingMsgId = initialMsgId;
+              initialMsgId = null;
             }
+            // (progressMsgId는 삭제하지 않음 — 다음 도구 사용 시 같은 자리에서 재활용됨)
 
             // 도구 사용 후 → 기존 스트리밍 메시지 삭제, 새로 시작 (중복 방지)
             if (afterToolUse && streamingMsgId) {
@@ -850,6 +862,12 @@ async function runClaude(prompt, chatId) {
           if (block.type === "tool_use") {
             // verbosity 0: 도구 진행 표시 안함
             if (currentVerbosity === 0) continue;
+
+            // initial thinking 메시지가 있으면 progress 메시지로 재활용
+            if (initialMsgId && !progressMsgId) {
+              progressMsgId = initialMsgId;
+              initialMsgId = null;
+            }
 
             // 스트리밍 중이던 텍스트를 확정 (streamingMsgId는 유지하여 후속 텍스트가 같은 메시지에 이어붙도록)
             if (streamingMsgId && streamingBuffer) {
@@ -904,6 +922,11 @@ async function runClaude(prompt, chatId) {
       }
 
       if (message.type === "result") {
+        // 사용되지 않은 initial thinking 메시지 정리 (도구도 텍스트도 안 온 경우)
+        if (initialMsgId) {
+          try { await bot.deleteMessage(chatId, initialMsgId); } catch {}
+          initialMsgId = null;
+        }
         // 진행 메시지 삭제
         if (progressMsgId) {
           try { await bot.deleteMessage(chatId, progressMsgId); } catch {}
