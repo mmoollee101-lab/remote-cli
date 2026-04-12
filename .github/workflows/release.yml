@@ -32,6 +32,8 @@ jobs:
         run: |
           $files = @(
             'bot.js',
+            'utils.js',
+            'i18n.js',
             'package.json',
             'package-lock.json',
             '.env.example',
@@ -54,6 +56,15 @@ jobs:
 
           # Copy dist (exe)
           Copy-Item -Recurse dist "$dest\dist"
+
+          # Copy law-bot
+          if (Test-Path 'law-bot') {
+            $lawDest = "$dest\law-bot"
+            mkdir $lawDest -Force | Out-Null
+            foreach ($f in @('law-bot.js', 'config.js', 'law-tools.js', 'package.json', 'package-lock.json')) {
+              if (Test-Path "law-bot\$f") { Copy-Item "law-bot\$f" $lawDest }
+            }
+          }
 
           # Create zip
           Compress-Archive -Path "$dest\*" -DestinationPath "claude-telegram-bot-${{ github.ref_name }}.zip"
