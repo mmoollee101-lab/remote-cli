@@ -71,6 +71,11 @@ Anthropic's official [Remote Control](https://code.claude.com/docs/en/remote-con
 - **Language Switching** — Change i18n language from tray menu (Korean/English)
 - **Graceful Shutdown** — Proper cleanup of child processes and lock files
 
+### Law Bot (Optional)
+- **Separate Standalone exe** — `dist\Law Bot.exe` runs independently with its own tray icon, so restarting the main bot does **not** affect the law bot (and vice versa).
+- Korean legal assistant (open.law.go.kr API) for family members via a second Telegram bot.
+- Settings dialog, auto-start-on-boot toggle, and auto-restart on crash — all in the Law Bot tray menu.
+
 ## Commands
 
 | Command | Description |

@@ -81,6 +81,26 @@ if %errorlevel% equ 0 (
     echo [WARN] exe 빌드 실패 — node bot.js로 직접 실행하세요.
 )
 
+:: Build law-bot launcher exe (independent from main bot)
+if exist law-launcher.cs (
+    if not exist law-app.ico (
+        if exist make-law-icon.ps1 (
+            powershell -ExecutionPolicy Bypass -File make-law-icon.ps1 >nul 2>&1
+        )
+    )
+    if exist law-app.ico (
+        set LAW_ICO=law-app.ico
+    ) else (
+        set LAW_ICO=app.ico
+    )
+    C:\Windows\Microsoft.NET\Framework\v4.0.30319\csc.exe /nologo /target:winexe /win32icon:%LAW_ICO% /out:"dist\Law Bot.exe" law-launcher.cs >nul 2>&1
+    if %errorlevel% equ 0 (
+        echo [OK] dist\Law Bot.exe 빌드 완료
+    ) else (
+        echo [WARN] Law Bot.exe 빌드 실패 — node law-bot/law-bot.js로 직접 실행하세요.
+    )
+)
+
 echo.
 echo ═══════════════════════════════════════
 echo   설정 완료!

@@ -28,6 +28,18 @@ jobs:
           & "C:\Windows\Microsoft.NET\Framework\v4.0.30319\csc.exe" /nologo /target:winexe /win32icon:app.ico /out:"dist\Claude Telegram Bot.exe" launcher.cs
         shell: pwsh
 
+      - name: Generate law-bot icon
+        run: |
+          if (-not (Test-Path 'law-app.ico')) {
+            & powershell -ExecutionPolicy Bypass -File make-law-icon.ps1
+          }
+        shell: pwsh
+
+      - name: Build law-bot launcher exe
+        run: |
+          & "C:\Windows\Microsoft.NET\Framework\v4.0.30319\csc.exe" /nologo /target:winexe /win32icon:law-app.ico /out:"dist\Law Bot.exe" law-launcher.cs
+        shell: pwsh
+
       - name: Create release package
         run: |
           $files = @(
@@ -38,7 +50,10 @@ jobs:
             'package-lock.json',
             '.env.example',
             'launcher.cs',
+            'law-launcher.cs',
+            'make-law-icon.ps1',
             'app.ico',
+            'law-app.ico',
             'setup.bat',
             'README.md'
           )
