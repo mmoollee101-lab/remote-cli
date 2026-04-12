@@ -219,7 +219,7 @@ class TrayLauncher
                 case "lawbot_env_guide": return "Step 1. Telegram \u2192 @BotFather \u2192 /newbot\n             \u2192 Create a SEPARATE bot for legal questions\n             \u2192 Copy the token \u2192 paste below\n\nStep 2. Go to open.law.go.kr \u2192 Sign up \u2192 Get API key\n             \u2192 Paste API key below\n\nStep 3. Send /start to the legal bot in Telegram\n             \u2192 Copy User IDs of family members\n             \u2192 Paste below (comma separated)";
                 case "lawbot_token_hint": return "Create a NEW bot via @BotFather (separate from remote-cli bot)";
                 case "lawbot_oc_hint": return "Register at open.law.go.kr \u2192 My Page \u2192 API Key";
-                case "lawbot_users_hint": return "Comma separated Telegram User IDs (e.g. 123456,789012)";
+                case "lawbot_users_hint": return "id (name) format, comma separated (e.g. 123456 (John), 789012 (Jane))";
                 case "lawbot_token_required": return "Telegram Bot Token is required.";
                 case "lawbot_oc_required": return "Law API Key is required.";
                 case "lawbot_not_configured": return "Legal Bot is not configured.\nRight-click tray \u2192 Legal Bot \u2192 Settings";
@@ -266,7 +266,7 @@ class TrayLauncher
             case "lawbot_env_guide": return "1단계. 텔레그램 → @BotFather → /newbot\n             → 법률 질문용 봇을 별도로 만드세요\n             → 토큰 복사 → 아래에 붙여넣기\n\n2단계. open.law.go.kr 접속 → 회원가입 → API 키 발급\n             → 아래에 API 키 붙여넣기\n\n3단계. 법률 봇에 /start 전송\n             → 가족 멤버들의 유저 ID 복사\n             → 아래에 쉼표로 구분하여 붙여넣기";
             case "lawbot_token_hint": return "@BotFather에서 새 봇 생성 (원격 제어 봇과 별도로)";
             case "lawbot_oc_hint": return "open.law.go.kr → 마이페이지 → API 키 발급";
-            case "lawbot_users_hint": return "텔레그램 유저 ID를 쉼표로 구분 (예: 123456,789012)";
+            case "lawbot_users_hint": return "id (이름) 형식, 쉼표로 구분 (예: 123456 (홍길동), 789012 (김철수))";
             case "lawbot_token_required": return "텔레그램 봇 토큰은 필수입니다.";
             case "lawbot_oc_required": return "법제처 API 키는 필수입니다.";
             case "lawbot_not_configured": return "법률 봇이 설정되지 않았습니다.\n트레이 우클릭 → 법률 봇 → 설정";
@@ -428,9 +428,8 @@ class TrayLauncher
                 }
                 else if (botProcess.ExitCode == 1)
                 {
-                    // lock 충돌 등 — 트레이 유지, 자동 재시작 시도
-                    try { File.Delete(Path.Combine(botDir, "bot.lock")); } catch { }
-                    RestartBot(botDir, botJsPath);
+                    // lock 충돌 = 다른 인스턴스가 이미 실행 중 → 재시작하지 않음
+                    // (재시작하면 중복 실행으로 재연결 메시지 폭탄 발생)
                 }
                 else
                 {
@@ -1227,7 +1226,8 @@ class TrayLauncher
         // 첫 번째(관리자) 제외, 나머지 사용자에게만
         for (int i = 1; i < allUsers.Length; i++)
         {
-            string id = allUsers[i].Trim();
+            string entry = allUsers[i].Trim();
+            string id = entry.Contains(":") ? entry.Substring(0, entry.IndexOf(':')) : entry;
             if (id.Length == 0) continue;
             try
             {
@@ -1266,8 +1266,9 @@ class TrayLauncher
             if (key == "AUTHORIZED_USERS") lawUsers = val;
         }
         if (string.IsNullOrEmpty(lawToken) || string.IsNullOrEmpty(lawUsers)) return;
-        // 관리자(첫 번째 ID)에게만 시작/종료 알림
-        string adminId = lawUsers.Split(',')[0].Trim();
+        // 관리자(첫 번째 ID)에게만 시작/종료 알림 (id:name에서 id만 추출)
+        string adminEntry = lawUsers.Split(',')[0].Trim();
+        string adminId = adminEntry.Contains(":") ? adminEntry.Substring(0, adminEntry.IndexOf(':')) : adminEntry;
         if (adminId.Length == 0) return;
         string[] targets = new string[] { adminId };
         foreach (string id in targets)
@@ -1313,7 +1314,7 @@ class TrayLauncher
             }
         }
 
-        // 첫 번째 = 관리자, 나머지 = 사용자
+        // 첫 번째 = 관리자, 나머지 = 사용자 (format: id:name)
         string[] userList = existingUsers.Split(new char[] { ',' }, StringSplitOptions.RemoveEmptyEntries);
         string existingAdmin = userList.Length > 0 ? userList[0].Trim() : "";
         System.Collections.Generic.List<string> existingMembers = new System.Collections.Generic.List<string>();
@@ -1322,6 +1323,21 @@ class TrayLauncher
             string u = userList[i].Trim();
             if (u.Length > 0) existingMembers.Add(u);
         }
+        // id:name → 표시용 "id (name)" 변환 헬퍼
+        Func<string, string> displayUser = (entry) => {
+            int colonIdx = entry.IndexOf(':');
+            if (colonIdx > 0 && colonIdx < entry.Length - 1)
+                return entry.Substring(0, colonIdx) + " (" + entry.Substring(colonIdx + 1) + ")";
+            return entry;
+        };
+        // 표시용 → 저장용 "id:name" 복원 헬퍼
+        Func<string, string> restoreUser = (display) => {
+            // "id (name)" → "id:name", "id" → "id"
+            int parenIdx = display.IndexOf(" (");
+            if (parenIdx > 0 && display.EndsWith(")"))
+                return display.Substring(0, parenIdx) + ":" + display.Substring(parenIdx + 2, display.Length - parenIdx - 3);
+            return display.Trim();
+        };
 
         Form form = new Form();
         form.Text = L("lawbot") + " \u2014 " + L("lawbot_env_title");
@@ -1388,7 +1404,7 @@ class TrayLauncher
         string adminLabel = currentLang == "en" ? "\uD83D\uDC51 Admin ID *" : "\uD83D\uDC51 \uAD00\uB9AC\uC790 ID *";
         Label lblAdmin = new Label { Text = adminLabel, Location = new Point(pad, y), AutoSize = true, Font = new Font("Malgun Gothic", 9.5f, FontStyle.Bold) };
         y += 22;
-        TextBox txtAdmin = new TextBox { Location = new Point(pad, y), Width = inputW, Text = existingAdmin };
+        TextBox txtAdmin = new TextBox { Location = new Point(pad, y), Width = inputW, Text = displayUser(existingAdmin) };
         y += 30;
         string adminHint = currentLang == "en"
             ? "Your Telegram User ID (send /start to bot to find it)"
@@ -1402,7 +1418,7 @@ class TrayLauncher
         y += 22;
         TextBox txtUsers = new TextBox {
             Location = new Point(pad, y), Width = inputW,
-            Text = string.Join(", ", existingMembers),
+            Text = string.Join(", ", existingMembers.ConvertAll(m => displayUser(m))),
             BackColor = Color.FromArgb(245, 245, 248)
         };
         y += 30;
@@ -1457,10 +1473,12 @@ class TrayLauncher
 
         btnExport.Click += (s, e) =>
         {
-            string admin = txtAdmin.Text.Trim();
-            string members = txtUsers.Text.Trim();
+            string admin = restoreUser(txtAdmin.Text.Trim());
+            string[] expParts = txtUsers.Text.Split(new char[] { ',' }, StringSplitOptions.RemoveEmptyEntries);
+            System.Collections.Generic.List<string> expMembers = new System.Collections.Generic.List<string>();
+            foreach (string ep in expParts) { string r = restoreUser(ep.Trim()); if (r.Length > 0) expMembers.Add(r); }
             string combined = admin;
-            if (members.Length > 0) combined += "," + members;
+            if (expMembers.Count > 0) combined += "," + string.Join(",", expMembers);
             string raw = "TELEGRAM_BOT_TOKEN=" + txtToken.Text.Trim()
                        + "|LAW_OC=" + txtOC.Text.Trim()
                        + "|AUTHORIZED_USERS=" + combined;
@@ -1501,8 +1519,14 @@ class TrayLauncher
                     else if (key == "AUTHORIZED_USERS")
                     {
                         string[] ids = val.Split(',');
-                        txtAdmin.Text = ids.Length > 0 ? ids[0].Trim() : "";
-                        txtUsers.Text = ids.Length > 1 ? string.Join(",", ids, 1, ids.Length - 1).Trim() : "";
+                        txtAdmin.Text = ids.Length > 0 ? displayUser(ids[0].Trim()) : "";
+                        if (ids.Length > 1)
+                        {
+                            System.Collections.Generic.List<string> impMembers = new System.Collections.Generic.List<string>();
+                            for (int ii = 1; ii < ids.Length; ii++) { string im = ids[ii].Trim(); if (im.Length > 0) impMembers.Add(displayUser(im)); }
+                            txtUsers.Text = string.Join(", ", impMembers);
+                        }
+                        else txtUsers.Text = "";
                     }
                 }
                 btnImport.Text = "✅ 설정 적용됨";
@@ -1529,11 +1553,13 @@ class TrayLauncher
                 return;
             }
 
-            // 관리자 + 사용자 합쳐서 AUTHORIZED_USERS로 저장
-            string admin = txtAdmin.Text.Trim();
-            string members = txtUsers.Text.Trim();
+            // 관리자 + 사용자 합쳐서 AUTHORIZED_USERS로 저장 (id:name 형식)
+            string admin = restoreUser(txtAdmin.Text.Trim());
+            string[] memberParts = txtUsers.Text.Split(new char[] { ',' }, StringSplitOptions.RemoveEmptyEntries);
+            System.Collections.Generic.List<string> restoredMembers = new System.Collections.Generic.List<string>();
+            foreach (string mp in memberParts) { string r = restoreUser(mp.Trim()); if (r.Length > 0) restoredMembers.Add(r); }
             string combined = admin;
-            if (members.Length > 0) combined += "," + members;
+            if (restoredMembers.Count > 0) combined += "," + string.Join(",", restoredMembers);
 
             StringBuilder sb = new StringBuilder();
             sb.AppendLine("# Telegram Bot Token (BotFather - law bot)");
@@ -1542,7 +1568,7 @@ class TrayLauncher
             sb.AppendLine("# Law API Key (open.law.go.kr)");
             sb.AppendLine("LAW_OC=" + txtOC.Text.Trim());
             sb.AppendLine();
-            sb.AppendLine("# Authorized User IDs (first = admin, rest = users)");
+            sb.AppendLine("# Authorized Users (format: id:name) first = admin");
             sb.AppendLine("AUTHORIZED_USERS=" + combined);
             sb.AppendLine();
             sb.AppendLine("# Language");
@@ -1712,15 +1738,7 @@ class TrayLauncher
         try { SendTelegram("🔄 " + L("bot_stopped") + name + "\n재빌드 후 재시작합니다."); } catch { }
         try { SendLawBotTelegram("🔄 법률 도우미 봇이 종료됩니다. 재빌드 후 재시작합니다."); } catch { }
         StopLawBot(silent: true);
-        try
-        {
-            if (botProcess != null && !botProcess.HasExited)
-            {
-                botProcess.Kill();
-                botProcess.WaitForExit(3000);
-            }
-        }
-        catch { }
+        KillBotProcess();
 
         // 2. npm install (새 의존성 설치)
         try
@@ -1773,11 +1791,16 @@ class TrayLauncher
                     string batPath = Path.Combine(botDir, "dist", "_rebuild.bat");
                     File.WriteAllText(batPath,
                         "@echo off\r\n" +
-                        "timeout /t 1 /nobreak >nul\r\n" +
+                        "chcp 65001 >nul\r\n" +
+                        "timeout /t 2 /nobreak >nul\r\n" +
                         "move /y \"" + tempExe + "\" \"" + exePath + "\"\r\n" +
-                        "start \"\" \"" + exePath + "\"\r\n" +
+                        "if errorlevel 1 (\r\n" +
+                        "  timeout /t 2 /nobreak >nul\r\n" +
+                        "  move /y \"" + tempExe + "\" \"" + exePath + "\"\r\n" +
+                        ")\r\n" +
+                        "start \"ClaudeBot\" \"" + exePath + "\"\r\n" +
                         "del \"%~f0\"\r\n",
-                        Encoding.Default);
+                        new UTF8Encoding(false));
 
                     Process.Start(new ProcessStartInfo
                     {
@@ -1808,18 +1831,55 @@ class TrayLauncher
         botProcess = Process.Start(CreateNodeStartInfo(botJsPath, botDir));
     }
 
-    static void RestartBot(string dir, string botJs)
+    static void KillBotProcess()
     {
+        // 1. 추적 중인 프로세스 종료
         try
         {
-            if (!botProcess.HasExited)
+            if (botProcess != null && !botProcess.HasExited)
             {
                 botProcess.Kill();
-                botProcess.WaitForExit(3000);
+                botProcess.WaitForExit(5000);
+            }
+        }
+        catch { }
+        botProcess = null;
+
+        // 2. bot.lock에 기록된 PID로 잔여 프로세스 종료
+        string lockPath = Path.Combine(botDir, "bot.lock");
+        try
+        {
+            if (File.Exists(lockPath))
+            {
+                string pidStr = File.ReadAllText(lockPath).Trim();
+                int pid;
+                if (int.TryParse(pidStr, out pid))
+                {
+                    try
+                    {
+                        Process p = Process.GetProcessById(pid);
+                        if (p != null && !p.HasExited && p.ProcessName.ToLower() == "node")
+                        {
+                            p.Kill();
+                            p.WaitForExit(3000);
+                        }
+                    }
+                    catch { } // 이미 종료된 프로세스
+                }
             }
         }
         catch { }
 
+        // 3. lock 파일 삭제
+        try { File.Delete(lockPath); } catch { }
+
+        // 4. 프로세스 완전 종료 대기
+        System.Threading.Thread.Sleep(1000);
+    }
+
+    static void RestartBot(string dir, string botJs)
+    {
+        KillBotProcess();
         ParseEnv(Path.Combine(dir, ".env"));
         fullPath = GetFullPath();
         botProcess = Process.Start(CreateNodeStartInfo(botJs, dir));

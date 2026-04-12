@@ -767,6 +767,7 @@ async function runClaude(prompt, chatId) {
     let streamingMsgId = null;
     let streamingBuffer = "";
     let lastStreamUpdate = 0;
+    let afterToolUse = false; // 도구 사용 후 텍스트 중복 방지용
 
     for await (const message of q) {
       if (message.session_id) {
@@ -801,6 +802,13 @@ async function runClaude(prompt, chatId) {
               progressMsgId = null;
             }
 
+            // 도구 사용 후 → 기존 스트리밍 메시지 삭제, 새로 시작 (중복 방지)
+            if (afterToolUse && streamingMsgId) {
+              try { await bot.deleteMessage(chatId, streamingMsgId); } catch {}
+              streamingMsgId = null;
+              streamingBuffer = "";
+              afterToolUse = false;
+            }
             streamingBuffer += block.text;
             const now = Date.now();
 
@@ -843,7 +851,7 @@ async function runClaude(prompt, chatId) {
             // verbosity 0: 도구 진행 표시 안함
             if (currentVerbosity === 0) continue;
 
-            // 스트리밍 중이던 텍스트를 확정하고 새 도구 진행 메시지 준비
+            // 스트리밍 중이던 텍스트를 확정 (streamingMsgId는 유지하여 후속 텍스트가 같은 메시지에 이어붙도록)
             if (streamingMsgId && streamingBuffer) {
               try {
                 await bot.editMessageText(streamingBuffer.length > MAX_MSG_LENGTH ? "..." + streamingBuffer.slice(-(MAX_MSG_LENGTH - 20)) : streamingBuffer, {
@@ -856,8 +864,8 @@ async function runClaude(prompt, chatId) {
                   });
                 } catch {}
               }
-              streamingMsgId = null;
-              streamingBuffer = "";
+              // streamingMsgId와 streamingBuffer를 유지 → 후속 텍스트가 같은 메시지에 edit됨
+              afterToolUse = true;
             }
 
             const now = Date.now();
@@ -2466,7 +2474,10 @@ let pollingErrorCount = 0;
 let consecutivePollingErrors = 0;
 let isOffline = false;
 let reconnectTimer = null;
+let lastReconnectNotify = 0; // 재연결 알림 쿨다운
+let lastReconnectSuccess = 0; // 재연결 성공 시점 (안정화 기간용)
 const OFFLINE_THRESHOLD = 5; // 연속 에러 N회 후 오프라인 전환
+const STABILIZE_PERIOD = 30000; // 재연결 후 30초간 폴링 에러 무시
 const RECONNECT_BASE_DELAY = CONFIG.RECONNECT_BASE_DELAY;
 const RECONNECT_MAX_DELAY = CONFIG.RECONNECT_MAX_DELAY;
 
@@ -2485,6 +2496,9 @@ bot.on("polling_error", (err) => {
     pollingErrorCount = 0;
     lastPollingErrorTime = now;
   }
+
+  // 재연결 직후 안정화 기간에는 오프라인 전환 방지
+  if (Date.now() - lastReconnectSuccess < STABILIZE_PERIOD) return;
 
   // 연속 에러 임계치 도달 → 오프라인 모드 전환
   if (consecutivePollingErrors >= OFFLINE_THRESHOLD && !isOffline) {
@@ -2512,9 +2526,7 @@ function scheduleReconnect(delay) {
       consecutivePollingErrors = 0;
       pollingErrorCount = 0;
       log("[ONLINE] 네트워크 재연결 성공!");
-      if (AUTHORIZED_USER_ID) {
-        bot.sendMessage(AUTHORIZED_USER_ID, t("reconnected")).catch(() => {});
-      }
+      lastReconnectSuccess = Date.now();
     } catch (err) {
       const nextDelay = Math.min(delay * 2, RECONNECT_MAX_DELAY);
       log(`[RECONNECT] 실패 (${err.message}). ${nextDelay / 1000}초 후 재시도...`);
