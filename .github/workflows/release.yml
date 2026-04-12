@@ -19,10 +19,19 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Install dependencies
+      - name: Install rcli dependencies
         run: npm install --production --legacy-peer-deps
 
-      - name: Build launcher exe
+      - name: Install law-bot dependencies
+        run: |
+          if (Test-Path 'law-bot/package.json') {
+            Push-Location law-bot
+            npm install --production --legacy-peer-deps
+            Pop-Location
+          }
+        shell: pwsh
+
+      - name: Build rcli launcher exe
         run: |
           mkdir dist -ErrorAction SilentlyContinue
           & "C:\Windows\Microsoft.NET\Framework\v4.0.30319\csc.exe" /nologo /target:winexe /win32icon:app.ico /out:"dist\Claude Telegram Bot.exe" launcher.cs
@@ -40,70 +49,72 @@ jobs:
           & "C:\Windows\Microsoft.NET\Framework\v4.0.30319\csc.exe" /nologo /target:winexe /win32icon:law-app.ico /out:"dist\Law Bot.exe" law-launcher.cs
         shell: pwsh
 
-      - name: Create release package
+      - name: Package rcli portable zip
         run: |
-          $files = @(
-            'bot.js',
-            'utils.js',
-            'i18n.js',
-            'package.json',
-            'package-lock.json',
-            '.env.example',
-            'launcher.cs',
-            'law-launcher.cs',
-            'make-law-icon.ps1',
-            'app.ico',
-            'law-app.ico',
-            'setup.bat',
-            'README.md'
-          )
-
-          $dest = 'release\claude-telegram-bot'
+          $dest = "release\rcli-${{ github.ref_name }}"
           mkdir $dest -Force | Out-Null
+          mkdir "$dest\dist" -Force | Out-Null
 
-          # Copy root files
+          $files = @(
+            'bot.js', 'utils.js', 'i18n.js', 'commands.js', 'config.js',
+            'package.json', 'package-lock.json', '.env.example',
+            'launcher.cs', 'app.ico', 'README.md'
+          )
           foreach ($f in $files) {
             if (Test-Path $f) { Copy-Item $f $dest }
           }
-
-          # Copy node_modules
           Copy-Item -Recurse node_modules "$dest\node_modules"
+          Copy-Item "dist\Claude Telegram Bot.exe" "$dest\dist\"
 
-          # Copy dist (exe)
-          Copy-Item -Recurse dist "$dest\dist"
-
-          # Copy law-bot
-          if (Test-Path 'law-bot') {
-            $lawDest = "$dest\law-bot"
-            mkdir $lawDest -Force | Out-Null
-            foreach ($f in @('law-bot.js', 'config.js', 'law-tools.js', 'package.json', 'package-lock.json')) {
-              if (Test-Path "law-bot\$f") { Copy-Item "law-bot\$f" $lawDest }
-            }
+          # rcli-only setup.bat (no law-bot build step)
+          if (Test-Path 'release_assets\rcli-setup.bat') {
+            Copy-Item 'release_assets\rcli-setup.bat' "$dest\setup.bat"
+          } else {
+            Copy-Item 'setup.bat' "$dest\setup.bat"
           }
 
-          # Create zip
-          Compress-Archive -Path "$dest\*" -DestinationPath "claude-telegram-bot-${{ github.ref_name }}.zip"
+          Compress-Archive -Path "$dest\*" -DestinationPath "rcli-${{ github.ref_name }}.zip" -CompressionLevel Optimal -Force
+        shell: pwsh
+
+      - name: Package law-bot portable zip
+        run: |
+          $dest = "release\law-bot-${{ github.ref_name }}"
+          mkdir $dest -Force | Out-Null
+          mkdir "$dest\dist" -Force | Out-Null
+          mkdir "$dest\law-bot" -Force | Out-Null
+
+          # Root files for law-bot package
+          $rootFiles = @(
+            'law-launcher.cs', 'law-app.ico', 'make-law-icon.ps1'
+          )
+          foreach ($f in $rootFiles) {
+            if (Test-Path $f) { Copy-Item $f $dest }
+          }
+
+          # law-bot folder
+          foreach ($f in @('law-bot.js', 'law-tools.js', 'config.js', 'package.json', 'package-lock.json')) {
+            if (Test-Path "law-bot\$f") { Copy-Item "law-bot\$f" "$dest\law-bot\" }
+          }
+          if (Test-Path 'law-bot\node_modules') {
+            Copy-Item -Recurse 'law-bot\node_modules' "$dest\law-bot\node_modules"
+          }
+          Copy-Item "dist\Law Bot.exe" "$dest\dist\"
+
+          # law-bot specific setup.bat (separate from root setup.bat)
+          if (Test-Path 'release_assets\law-bot-setup.bat') {
+            Copy-Item 'release_assets\law-bot-setup.bat' "$dest\setup.bat"
+          }
+          if (Test-Path 'release_assets\law-bot-README.md') {
+            Copy-Item 'release_assets\law-bot-README.md' "$dest\README.md"
+          }
+
+          Compress-Archive -Path "$dest\*" -DestinationPath "law-bot-${{ github.ref_name }}.zip" -CompressionLevel Optimal -Force
         shell: pwsh
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: claude-telegram-bot-*.zip
-          body: |
-            ## Installation
-
-            ### Prerequisites
-            - [Node.js 20+](https://nodejs.org)
-            - [Claude Code CLI](https://www.npmjs.com/package/@anthropic-ai/claude-code) (`npm i -g @anthropic-ai/claude-code`)
-
-            ### Quick Install
-            1. Download and extract the zip
-            2. Run `setup.bat` (installs dependencies + configures .env)
-            3. Launch `dist\Claude Telegram Bot.exe`
-
-            ### Manual Install
-            1. Extract the zip
-            2. Copy `.env.example` to `.env` and set your tokens
-            3. `npm install` (node_modules included in zip, can skip)
-            4. Run `dist\Claude Telegram Bot.exe` or `node bot.js`
+          files: |
+            rcli-*.zip
+            law-bot-*.zip
           generate_release_notes: true
