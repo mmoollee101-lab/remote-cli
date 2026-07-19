@@ -24,6 +24,10 @@ class TrayLauncher
     static string botDir;
     static string botJsPath;
     static bool setupNotified = false;
+    static int crashCount = 0;
+    static DateTime lastCrashTime = DateTime.MinValue;
+    static string healthcheckUrl;
+    static string healthcheckApiKey;
 
     // 시스템 + 사용자 PATH를 합쳐서 완전한 PATH 생성
     static string GetFullPath()
@@ -277,6 +281,9 @@ class TrayLauncher
         }
         botProcess = Process.Start(CreateNodeStartInfo(botJsPath, botDir));
 
+        // 최초 실행 시 자동 시작 기본 ON (사용자가 이후 끄면 그 선택을 존중)
+        InitAutoStartDefault();
+
         Application.EnableVisualStyles();
 
         string label = string.IsNullOrEmpty(computerName)
@@ -298,11 +305,43 @@ class TrayLauncher
         timer.Interval = 2000;
         timer.Tick += (s, e) =>
         {
+            // 외부 재시작 트리거 (법률봇 런처의 상호 감시 등이 생성) — 봇 생존과 무관하게 처리
+            string mainTrigger = Path.Combine(botDir, "main-restart.trigger");
+            if (File.Exists(mainTrigger))
+            {
+                try { File.Delete(mainTrigger); } catch { }
+                crashCount = 0;
+                RestartBot(botDir, botJsPath);
+                return;
+            }
+
             if (botProcess != null && botProcess.HasExited)
             {
                 if (botProcess.ExitCode == 82)
                 {
                     RestartBot(botDir, botJsPath);
+                }
+                else if (botProcess.ExitCode == 83)
+                {
+                    // 크래시(uncaughtException) — 자동 재시작.
+                    // 단, 짧은 시간에 반복 크래시하면 무한 재시작을 막고 알림.
+                    DateTime now = DateTime.Now;
+                    if ((now - lastCrashTime).TotalSeconds > 120) crashCount = 0;
+                    crashCount++;
+                    lastCrashTime = now;
+                    if (crashCount <= 5)
+                    {
+                        SendTelegram("Bot crashed — restarting (" + crashCount + "/5)"
+                            + (string.IsNullOrEmpty(computerName) ? "" : " [" + computerName + "]"));
+                        RestartBot(botDir, botJsPath);
+                    }
+                    else
+                    {
+                        SendTelegram("Bot crashed repeatedly (5x in 2min). Auto-restart paused — recover via tray menu / restart link. Check bot.log."
+                            + (string.IsNullOrEmpty(computerName) ? "" : " [" + computerName + "]"));
+                        // 자동 재시작은 멈추되 런처는 유지 — main-restart.trigger 감시/트레이 메뉴로 복구 가능
+                        botProcess = null;
+                    }
                 }
                 else if (botProcess.ExitCode == 2)
                 {
@@ -325,6 +364,13 @@ class TrayLauncher
             }
         };
         timer.Start();
+
+        // 절전/종료(의도적 off) 감지 → healthcheck 일시정지(오탐 알림 방지)
+        SystemEvents.PowerModeChanged += (s, e) =>
+        {
+            if (e.Mode == PowerModes.Suspend) PauseHealthcheck();
+        };
+        SystemEvents.SessionEnding += (s, e) => PauseHealthcheck();
 
         Application.Run();
     }
@@ -1093,7 +1139,7 @@ class TrayLauncher
             ProcessStartInfo npmPsi = new ProcessStartInfo
             {
                 FileName = "cmd.exe",
-                Arguments = "/c npm install --production",
+                Arguments = "/c npm install --production --legacy-peer-deps",
                 WorkingDirectory = botDir,
                 WindowStyle = ProcessWindowStyle.Hidden,
                 CreateNoWindow = true,
@@ -1266,7 +1312,31 @@ class TrayLauncher
             if (key == "TELEGRAM_BOT_TOKEN") botToken = val;
             if (key == "AUTHORIZED_USER_ID") chatId = val;
             if (key == "COMPUTER_NAME") computerName = val;
+            if (key == "HEALTHCHECK_URL") healthcheckUrl = val;
+            if (key == "HEALTHCHECK_API_KEY") healthcheckApiKey = val;
         }
+    }
+
+    // 절전/종료 시 healthcheck를 일시정지 → 의도적 off에 오탐 알림 방지.
+    // 깨어나면 봇의 다음 ping이 자동으로 재개시킨다.
+    static void PauseHealthcheck()
+    {
+        try
+        {
+            if (string.IsNullOrEmpty(healthcheckUrl) || string.IsNullOrEmpty(healthcheckApiKey)) return;
+            string uuid = healthcheckUrl.TrimEnd('/');
+            int slash = uuid.LastIndexOf('/');
+            if (slash >= 0) uuid = uuid.Substring(slash + 1);
+            if (string.IsNullOrEmpty(uuid)) return;
+            ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
+            using (WebClient c = new WebClient())
+            {
+                c.Headers["X-Api-Key"] = healthcheckApiKey;
+                c.Headers[HttpRequestHeader.ContentType] = "application/json";
+                c.UploadString("https://healthchecks.io/api/v3/checks/" + uuid + "/pause", "POST", "");
+            }
+        }
+        catch { }
     }
 
     static bool IsAutoStartEnabled()
@@ -1281,21 +1351,52 @@ class TrayLauncher
         catch { return false; }
     }
 
-    static void ToggleAutoStart()
+    static void EnableAutoStart()
     {
         try
         {
             using (RegistryKey key = Registry.CurrentUser.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Run", true))
             {
                 if (key == null) return;
-                if (IsAutoStartEnabled())
+                string exePath = System.Reflection.Assembly.GetExecutingAssembly().Location;
+                key.SetValue(AutoStartKey, "\"" + exePath + "\"");
+            }
+        }
+        catch { }
+    }
+
+    static void ToggleAutoStart()
+    {
+        try
+        {
+            if (IsAutoStartEnabled())
+            {
+                using (RegistryKey key = Registry.CurrentUser.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Run", true))
                 {
-                    key.DeleteValue(AutoStartKey, false);
+                    if (key != null) key.DeleteValue(AutoStartKey, false);
                 }
-                else
+            }
+            else
+            {
+                EnableAutoStart();
+            }
+        }
+        catch { }
+    }
+
+    // 최초 실행 시 자동 시작을 기본 ON으로 등록. 한 번만 수행하므로
+    // 사용자가 이후 트레이 메뉴에서 끄면 그 선택이 유지된다.
+    static void InitAutoStartDefault()
+    {
+        try
+        {
+            using (RegistryKey app = Registry.CurrentUser.CreateSubKey(@"SOFTWARE\ClaudeTelegramBot"))
+            {
+                if (app == null) return;
+                if (app.GetValue("AutoStartInitialized") == null)
                 {
-                    string exePath = System.Reflection.Assembly.GetExecutingAssembly().Location;
-                    key.SetValue(AutoStartKey, "\"" + exePath + "\"");
+                    app.SetValue("AutoStartInitialized", "1");
+                    if (!IsAutoStartEnabled()) EnableAutoStart();
                 }
             }
         }

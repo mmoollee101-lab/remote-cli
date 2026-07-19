@@ -20,6 +20,11 @@ module.exports = {
   RECONNECT_BASE_DELAY: 5000,
   RECONNECT_MAX_DELAY: 300000,
 
+  // 헬스체크 (dead-man's switch)
+  HEALTHCHECK_INTERVAL: 60000,    // 헬스체크/핑 주기 (1분)
+  HEALTHCHECK_TIMEOUT: 10000,     // getMe/핑 타임아웃 (10초)
+  HEALTHCHECK_FAIL_THRESHOLD: 2,  // 연속 실패 N회 시 능동 재연결
+
   // SDK
   DEFAULT_BUDGET_USD: 5.0,
   DEFAULT_EFFORT: "medium",

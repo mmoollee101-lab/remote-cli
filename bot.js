@@ -108,6 +108,11 @@ const AUTHORIZED_USER_ID = process.env.AUTHORIZED_USER_ID && /^\d+$/.test(proces
 
 const COMPUTER_NAME = process.env.COMPUTER_NAME || os.hostname();
 
+// 헬스체크 URL (dead-man's switch) — 접속이 오래 끊기면 외부 서비스가 개발자에게 메일 알림
+const HEALTHCHECK_URL = process.env.HEALTHCHECK_URL && /^https?:\/\//.test(process.env.HEALTHCHECK_URL.trim())
+  ? process.env.HEALTHCHECK_URL.trim().replace(/\/+$/, "")
+  : null;
+
 // ─── i18n ────────────────────────────────────────────────────────
 let currentLang = "ko"; // loadState()에서 덮어씀
 
@@ -142,6 +147,8 @@ function setCommands() {
     { command: "tunnel", description: t("cmd_tunnel") },
     { command: "resume", description: t("cmd_resume") },
     { command: "restart", description: t("cmd_restart") },
+    { command: "lawrestart", description: currentLang === "ko" ? "법률봇 재시작" : "Restart Law Bot" },
+    { command: "lawbot", description: currentLang === "ko" ? "법률봇 상태·재시작" : "Law Bot status/restart" },
     { command: "plan", description: t("cmd_plan") },
     { command: "lock", description: t("cmd_lock") },
     { command: "unlock", description: t("cmd_unlock") },
@@ -1251,6 +1258,30 @@ bot.onText(/\/new/, async (msg) => {
 bot.on("callback_query", async (query) => {
   const chatId = query.message.chat.id;
 
+  // 봇 재시작 버튼 (관리자 전용) — 잠금과 무관하게 항상 동작
+  if (query.data === "rst_law" || query.data === "rst_main") {
+    if (AUTHORIZED_USER_ID && query.from.id !== AUTHORIZED_USER_ID) {
+      await bot.answerCallbackQuery(query.id, { text: "권한이 없습니다." });
+      return;
+    }
+    await bot.answerCallbackQuery(query.id);
+    if (query.data === "rst_law") {
+      try {
+        triggerLawRestart();
+        await bot.editMessageText("🔄 법률봇 재시작 신호를 보냈습니다. 잠시 후 재시작됩니다.",
+          { chat_id: chatId, message_id: query.message.message_id });
+      } catch (e) {
+        await bot.editMessageText(`❌ 재시작 실패: ${e.message}`,
+          { chat_id: chatId, message_id: query.message.message_id });
+      }
+    } else {
+      await bot.editMessageText("🔄 메인봇을 재시작합니다...",
+        { chat_id: chatId, message_id: query.message.message_id }).catch(() => {});
+      setTimeout(() => { try { bot.stopPolling(); } catch {} releaseLock(); process.exit(82); }, 500);
+    }
+    return;
+  }
+
   // 잠금 체크 (unlock 관련 콜백만 통과)
   if (isLocked && !query.data.startsWith("tool_approve")) {
     await bot.answerCallbackQuery(query.id, { text: t("bot_locked") });
@@ -1674,6 +1705,53 @@ bot.onText(/\/restart/, async (msg) => {
   bot.stopPolling();
   releaseLock();
   process.exit(82);
+});
+
+// ─── 법률봇 원격 재시작 헬퍼 ─────────────────────────────────────
+// law-bot 런처가 restart.trigger 파일을 감시하다가 재시작한다.
+function triggerLawRestart() {
+  fs.writeFileSync(path.join(__dirname, "law-bot", "restart.trigger"), new Date().toISOString());
+}
+function isLawBotPresent() {
+  return fs.existsSync(path.join(__dirname, "law-bot", "law-bot.js"));
+}
+function isLawBotAlive() {
+  try {
+    const lock = path.join(__dirname, "law-bot", "law-bot.lock");
+    if (!fs.existsSync(lock)) return false;
+    const pid = parseInt(fs.readFileSync(lock, "utf-8").trim(), 10);
+    if (!pid) return false;
+    process.kill(pid, 0); // 살아있지 않으면 예외
+    return true;
+  } catch { return false; }
+}
+const lawRestartButton = () => ({
+  reply_markup: { inline_keyboard: [[{ text: "🔄 법률봇 재시작", callback_data: "rst_law" }]] },
+});
+
+// /lawrestart - 법률봇 원격 재시작 (즉시)
+bot.onText(/\/lawrestart/, async (msg) => {
+  if (!isAuthorized(msg)) return;
+  const chatId = msg.chat.id;
+  try {
+    triggerLawRestart();
+    await bot.sendMessage(chatId, "🔄 법률봇 재시작 신호를 보냈습니다. 잠시 후 재시작됩니다.\n(법률봇 런처가 실행 중이어야 동작합니다)");
+  } catch (err) {
+    await bot.sendMessage(chatId, `❌ 재시작 신호 전송 실패: ${err.message}`);
+  }
+});
+
+// /lawbot - 법률봇 상태 + 재시작 버튼
+bot.onText(/\/lawbot/, async (msg) => {
+  if (!isAuthorized(msg)) return;
+  const chatId = msg.chat.id;
+  if (!isLawBotPresent()) {
+    await bot.sendMessage(chatId, "이 컴퓨터에는 법률봇이 설치돼 있지 않습니다.");
+    return;
+  }
+  const alive = isLawBotAlive();
+  const status = alive ? "🟢 실행 중" : "🔴 응답 없음(중지/오류)";
+  await bot.sendMessage(chatId, `법률봇 상태: ${status}\n\n아래 버튼으로 재시작할 수 있어요.`, lawRestartButton());
 });
 
 // /setbudget <amount> — 세션 비용 상한
@@ -2548,8 +2626,10 @@ function scheduleReconnect(delay) {
       isOffline = false;
       consecutivePollingErrors = 0;
       pollingErrorCount = 0;
+      consecutiveHealthFails = 0;
       log("[ONLINE] 네트워크 재연결 성공!");
       lastReconnectSuccess = Date.now();
+      pingHealthcheck(); // 복구 즉시 정상 신호
     } catch (err) {
       const nextDelay = Math.min(delay * 2, RECONNECT_MAX_DELAY);
       log(`[RECONNECT] 실패 (${err.message}). ${nextDelay / 1000}초 후 재시도...`);
@@ -2558,11 +2638,81 @@ function scheduleReconnect(delay) {
   }, delay);
 }
 
+// ─── 헬스체크 (dead-man's switch) ─────────────────────────────────
+// 텔레그램 연결이 정상일 때만 외부 헬스체크 URL로 주기적 ping을 보낸다.
+// ping이 일정 기간 끊기면 외부 서비스(healthchecks.io 등)가 개발자에게 메일 알림.
+// 동시에 조용히 멈춘 폴링(절전 복귀 등)을 능동 감지해 재연결을 트리거한다.
+let healthcheckTimer = null;
+let consecutiveHealthFails = 0;
+
+function pingHealthcheck(suffix = "") {
+  if (!HEALTHCHECK_URL) return;
+  try {
+    const ctrl = new AbortController();
+    const to = setTimeout(() => ctrl.abort(), CONFIG.HEALTHCHECK_TIMEOUT);
+    fetch(HEALTHCHECK_URL + suffix, { method: "GET", signal: ctrl.signal })
+      .catch(() => {})
+      .finally(() => clearTimeout(to));
+  } catch {}
+}
+
+async function checkTelegramReachable() {
+  try {
+    await Promise.race([
+      bot.getMe(),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("getMe timeout")), CONFIG.HEALTHCHECK_TIMEOUT)),
+    ]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function startHealthcheck() {
+  if (healthcheckTimer) clearInterval(healthcheckTimer);
+  healthcheckTimer = setInterval(async () => {
+    // 이미 재연결 처리 중이면 실패 신호만 보내고 넘어감 (reconnect 로직이 담당)
+    if (isOffline || reconnectTimer) {
+      pingHealthcheck("/fail");
+      return;
+    }
+
+    const ok = await checkTelegramReachable();
+    if (ok) {
+      consecutiveHealthFails = 0;
+      pingHealthcheck(); // 정상 신호
+      return;
+    }
+
+    consecutiveHealthFails++;
+    logError(`[HEALTHCHECK] 텔레그램 연결 확인 실패 (${consecutiveHealthFails}회)`);
+    pingHealthcheck("/fail");
+
+    // 폴링이 조용히 멈춘 경우(절전 복귀·소켓 정지 등) 능동 재연결
+    if (consecutiveHealthFails >= CONFIG.HEALTHCHECK_FAIL_THRESHOLD && !isOffline) {
+      isOffline = true;
+      log("[OFFLINE] 헬스체크 실패 임계치 도달 — 폴링 재시작을 시도합니다.");
+      try { bot.stopPolling(); } catch {}
+      scheduleReconnect(RECONNECT_BASE_DELAY);
+    }
+  }, CONFIG.HEALTHCHECK_INTERVAL);
+  if (healthcheckTimer.unref) healthcheckTimer.unref();
+
+  if (HEALTHCHECK_URL) {
+    log(`[HEALTHCHECK] 활성화됨 (주기 ${CONFIG.HEALTHCHECK_INTERVAL / 1000}초)`);
+    pingHealthcheck(); // 시작 시 즉시 1회
+  } else {
+    log("[HEALTHCHECK] HEALTHCHECK_URL 미설정 — 능동 연결 감시만 동작(메일 알림 비활성).");
+  }
+}
+
 // ─── 종료 처리 ───────────────────────────────────────────────────
 async function gracefulShutdown(signal) {
   log(`[INFO] ${signal} 수신 — 봇을 종료합니다...`);
 
   if (reconnectTimer) clearTimeout(reconnectTimer);
+  if (healthcheckTimer) clearInterval(healthcheckTimer);
 
   if (currentAbortController) {
     currentAbortController.abort();
@@ -2571,6 +2721,7 @@ async function gracefulShutdown(signal) {
   // Preview 서버/터널/Webhook 정리
   stopTunnel();
   if (webhookServer) { webhookServer.close(); webhookServer = null; }
+  if (webRestart) { try { webRestart.stop(); } catch {} }
   // Cron 작업 중지
   for (const [, entry] of cronJobs) { try { entry.job.stop(); } catch {} }
 
@@ -2590,10 +2741,12 @@ process.on("exit", releaseLock);
 
 process.on("uncaughtException", (err) => {
   logError(`[FATAL] uncaughtException: ${err.message}`);
+  if (healthcheckTimer) clearInterval(healthcheckTimer);
   stopTunnel();
   if (webhookServer) { webhookServer.close(); webhookServer = null; }
   releaseLock();
-  process.exit(1);
+  // exit code 83 = 크래시(런처가 자동 재시작). exit 1은 lock 충돌(재시작 금지)과 구분.
+  process.exit(83);
 });
 
 process.on("unhandledRejection", (reason) => {
@@ -2648,3 +2801,96 @@ async function sendStartupMessage() {
 
 // ─── SDK 로드 후 시작 ────────────────────────────────────────────
 loadSDK().then(() => sendStartupMessage());
+
+// ─── 연결 감시 시작 ───────────────────────────────────────────────
+startHealthcheck();
+
+// ─── 이메일 재시작 감시 (설정된 경우에만) ─────────────────────────
+try {
+  const { startMailTrigger } = require("./mail-trigger");
+  startMailTrigger({
+    log,
+    logError,
+    onMainRestart: () => {
+      try { bot.stopPolling(); } catch {}
+      if (healthcheckTimer) clearInterval(healthcheckTimer);
+      releaseLock();
+      process.exit(82);
+    },
+  });
+} catch (err) {
+  logError(`[MAIL] 이메일 재시작 감시 초기화 실패: ${err.message}`);
+}
+
+// ─── 알림 메일러 (RESTART_EMAIL_USER/PASS 설정 시에만) ─────────────
+let alertMailer = null;
+try {
+  const { createMailer } = require("./mailer");
+  alertMailer = createMailer({
+    user: process.env.RESTART_EMAIL_USER,
+    pass: process.env.RESTART_EMAIL_PASS,
+    to: process.env.ALERT_EMAIL_TO || process.env.RESTART_EMAIL_FROM || process.env.RESTART_EMAIL_USER,
+    log, logError,
+  });
+} catch (err) {
+  logError(`[MAILER] 초기화 실패: ${err.message}`);
+}
+
+// ─── 법률봇 다운 감지 → 재시작 버튼 + 메일 알림(링크 포함) ─────────
+let lawDownSince = null;
+let lawDownAlerted = false;
+if (isLawBotPresent() && AUTHORIZED_USER_ID) {
+  const lawWatch = setInterval(() => {
+    if (isLawBotAlive()) { lawDownSince = null; lawDownAlerted = false; return; }
+    if (!lawDownSince) lawDownSince = Date.now();
+    // 3분 넘게 응답 없으면 1회 알림(재시작 버튼 + 메일). 복구되면 다시 감시.
+    if (!lawDownAlerted && Date.now() - lawDownSince > 3 * 60 * 1000) {
+      lawDownAlerted = true;
+      bot.sendMessage(AUTHORIZED_USER_ID,
+        "⚠️ 법률봇이 3분 넘게 응답이 없습니다. 아래 버튼으로 재시작할 수 있어요.",
+        lawRestartButton()).catch(() => {});
+      // 메일 알림(설정 시): 현재 재시작 링크 포함
+      if (alertMailer) {
+        const link = webRestart && webRestart.lawUrl;
+        const body = "법률봇이 3분 넘게 응답이 없습니다.\n\n" +
+          (link
+            ? `아래 링크를 클릭하면 재시작됩니다:\n${link}\n\n`
+            : "텔레그램에서 봇에게 /lawrestart 를 보내면 재시작됩니다.\n\n") +
+          "— 자동 발송된 알림입니다.";
+        alertMailer.sendAlert("⚠️ 법률봇 다운 — 재시작 필요", body);
+      }
+    }
+  }, 60 * 1000);
+  if (lawWatch.unref) lawWatch.unref();
+}
+
+// ─── 웹 링크 재시작 (RESTART_WEB_TOKEN 설정 시에만) ────────────────
+let webRestart = null;
+(async () => {
+  try {
+    const token = (process.env.RESTART_WEB_TOKEN || "").trim();
+    if (!token) return;
+    const { startWebRestart } = require("./restart-control");
+    webRestart = await startWebRestart({
+      token,
+      port: parseInt(process.env.RESTART_WEB_PORT || "18925", 10),
+      onLawRestart: triggerLawRestart,
+      onMainRestart: () => {
+        try { bot.stopPolling(); } catch {}
+        if (healthcheckTimer) clearInterval(healthcheckTimer);
+        releaseLock();
+        process.exit(82);
+      },
+      log, logError,
+    });
+    if (webRestart && webRestart.lawUrl && AUTHORIZED_USER_ID) {
+      await bot.sendMessage(AUTHORIZED_USER_ID,
+        "🔗 재시작 링크가 준비됐어요 (이 링크를 저장/북마크 해두세요. 봇 재시작 시 주소가 바뀌면 새로 보냅니다):\n\n" +
+        `• 법률봇 재시작:\n${webRestart.lawUrl}\n\n` +
+        `• 메인봇 재시작:\n${webRestart.mainUrl}`,
+        { disable_web_page_preview: true }).catch(() => {});
+    }
+  } catch (err) {
+    logError(`[WEBRESTART] 초기화 실패: ${err.message}`);
+  }
+})();

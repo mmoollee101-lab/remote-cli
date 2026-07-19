@@ -19,8 +19,10 @@
     "cloudflared": "^0.7.1",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
+    "imapflow": "^1.4.7",
     "node-cron": "^4.2.1",
     "node-telegram-bot-api": "^0.66.0",
+    "nodemailer": "^9.0.3",
     "openai": "^4.104.0"
   },
   "devDependencies": {

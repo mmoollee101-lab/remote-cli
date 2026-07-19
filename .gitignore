@@ -4,6 +4,7 @@ bot.log
 bot-state.json
 bot.lock
 *.lock
+*.trigger
 law-bot/law-bot.log
 dist/
 nul

@@ -22,6 +22,10 @@ class LawBotTrayLauncher
     static string logPath;
     static bool lawBotEnabled = false;
     static int lawBotCrashCount = 0;
+    static DateTime lastLawCrashAt = DateTime.MinValue;
+    static DateTime nextRestartAt = DateTime.MinValue;
+    static DateTime mainDownSince = DateTime.MinValue;
+    static bool mainDownTriggered = false;
     static string fullPath;
 
     // ─── PATH / Node discovery ──────────────────────────────────
@@ -72,7 +76,10 @@ class LawBotTrayLauncher
             CreateNoWindow = true,
             UseShellExecute = false,
             RedirectStandardOutput = true,
-            RedirectStandardError = true
+            RedirectStandardError = true,
+            // node는 UTF-8로 출력하므로 리더도 UTF-8로 (미지정 시 CP949로 오독→한글 깨짐)
+            StandardOutputEncoding = Encoding.UTF8,
+            StandardErrorEncoding = Encoding.UTF8
         };
         psi.EnvironmentVariables["PATH"] = fullPath;
         return psi;
@@ -113,6 +120,7 @@ class LawBotTrayLauncher
                 case "log": return "View Log";
                 case "autostart": return "Start with Windows";
                 case "restart": return "Restart";
+                case "rebuild": return "🔨 Rebuild & Restart";
                 case "quit": return "Quit";
                 case "already_running": return "Law Bot is already running.";
                 case "bot_not_found": return "law-bot.js not found.\n\nPath: {0}";
@@ -145,6 +153,7 @@ class LawBotTrayLauncher
             case "log": return "📋 로그 보기";
             case "autostart": return "🚀 윈도우 시작 시 자동 실행";
             case "restart": return "🔄 재시작";
+            case "rebuild": return "🔨 다시 빌드 & 재시작";
             case "quit": return "❌ 종료";
             case "already_running": return "법률 봇이 이미 실행 중입니다.";
             case "bot_not_found": return "law-bot.js를 찾을 수 없습니다.\n\n경로: {0}";
@@ -199,7 +208,7 @@ class LawBotTrayLauncher
                 ProcessStartInfo npmPsi = new ProcessStartInfo
                 {
                     FileName = "cmd.exe",
-                    Arguments = "/c npm install --production",
+                    Arguments = "/c npm install --production --legacy-peer-deps",
                     WorkingDirectory = lawBotDir,
                     WindowStyle = ProcessWindowStyle.Hidden,
                     CreateNoWindow = true,
@@ -254,6 +263,110 @@ class LawBotTrayLauncher
             if (!silent) SendLawBotTelegram("🟢 법률 도우미 봇이 시작되었습니다. 질문을 보내주세요!");
         }
         catch { lawBotEnabled = false; }
+    }
+
+    static void RebuildLawBotAndRestart()
+    {
+        string root = Path.GetFullPath(Path.Combine(lawBotDir, ".."));
+        try { SendLawBotTelegram("🔄 법률 봇 재빌드 후 재시작합니다."); } catch { }
+
+        // 봇 / 오프라인 폴러 완전 중지
+        lawBotEnabled = false;
+        nextRestartAt = DateTime.MinValue;
+        StopOfflinePoller();
+        try { if (lawBotProcess != null && !lawBotProcess.HasExited) { lawBotProcess.Kill(); lawBotProcess.WaitForExit(5000); } } catch { }
+        lawBotProcess = null;
+        try { File.Delete(Path.Combine(lawBotDir, "law-bot.lock")); } catch { }
+
+        // 새 의존성 설치
+        try
+        {
+            ProcessStartInfo npmPsi = new ProcessStartInfo
+            {
+                FileName = "cmd.exe",
+                Arguments = "/c npm install --production",
+                WorkingDirectory = lawBotDir,
+                WindowStyle = ProcessWindowStyle.Hidden,
+                CreateNoWindow = true,
+                UseShellExecute = false
+            };
+            npmPsi.EnvironmentVariables["PATH"] = fullPath;
+            Process npmProc = Process.Start(npmPsi);
+            npmProc.WaitForExit(120000);
+        }
+        catch { }
+
+        // law-launcher.cs → exe 재빌드
+        string cscPath = @"C:\Windows\Microsoft.NET\Framework\v4.0.30319\csc.exe";
+        string launcherCs = Path.Combine(root, "law-launcher.cs");
+        string icoPath = Path.Combine(root, "law-app.ico");
+        string exePath = System.Reflection.Assembly.GetExecutingAssembly().Location;
+        string tempExe = exePath + ".new";
+
+        if (File.Exists(cscPath) && File.Exists(launcherCs))
+        {
+            try
+            {
+                string args = "/nologo /target:winexe /out:\"" + tempExe + "\" \"" + launcherCs + "\"";
+                if (File.Exists(icoPath))
+                    args = "/nologo /target:winexe /win32icon:\"" + icoPath + "\" /out:\"" + tempExe + "\" \"" + launcherCs + "\"";
+
+                ProcessStartInfo cscPsi = new ProcessStartInfo
+                {
+                    FileName = cscPath,
+                    Arguments = args,
+                    WorkingDirectory = root,
+                    WindowStyle = ProcessWindowStyle.Hidden,
+                    CreateNoWindow = true,
+                    UseShellExecute = false
+                };
+                Process cscProc = Process.Start(cscPsi);
+                cscProc.WaitForExit(30000);
+
+                if (cscProc.ExitCode == 0 && File.Exists(tempExe))
+                {
+                    // 자기 자신을 교체하고 재실행
+                    string batPath = Path.Combine(root, "dist", "_rebuild_law.bat");
+                    File.WriteAllText(batPath,
+                        "@echo off\r\n" +
+                        "chcp 65001 >nul\r\n" +
+                        "timeout /t 2 /nobreak >nul\r\n" +
+                        "move /y \"" + tempExe + "\" \"" + exePath + "\"\r\n" +
+                        "if errorlevel 1 (\r\n" +
+                        "  timeout /t 2 /nobreak >nul\r\n" +
+                        "  move /y \"" + tempExe + "\" \"" + exePath + "\"\r\n" +
+                        ")\r\n" +
+                        "start \"LawBot\" \"" + exePath + "\"\r\n" +
+                        "del \"%~f0\"\r\n",
+                        new UTF8Encoding(false));
+
+                    Process.Start(new ProcessStartInfo
+                    {
+                        FileName = batPath,
+                        WindowStyle = ProcessWindowStyle.Hidden,
+                        CreateNoWindow = true,
+                        UseShellExecute = true
+                    });
+
+                    trayIcon.Visible = false;
+                    trayIcon.Dispose();
+                    if (appMutex != null) { appMutex.ReleaseMutex(); appMutex.Dispose(); appMutex = null; }
+                    Application.Exit();
+                    return;
+                }
+                else
+                {
+                    try { File.Delete(tempExe); } catch { }
+                }
+            }
+            catch { }
+        }
+
+        // 재빌드 실패 시 봇만 재시작
+        lawBotEnabled = true;
+        lawBotCrashCount = 0;
+        StartLawBot(silent: true);
+        BuildMenu();
     }
 
     static void StopLawBot(bool silent = false)
@@ -451,6 +564,64 @@ class LawBotTrayLauncher
             req.ContentLength = data.Length;
             using (Stream s = req.GetRequestStream()) { s.Write(data, 0, data.Length); }
             using (req.GetResponse()) { }
+        }
+        catch { }
+    }
+
+    // 메인봇 생존 확인 (repo 루트 bot.lock의 PID) — 상호 감시용
+    static bool IsMainBotAlive(string root)
+    {
+        try
+        {
+            string lockPath = Path.Combine(root, "bot.lock");
+            if (!File.Exists(lockPath)) return false;
+            int pid;
+            if (!int.TryParse(File.ReadAllText(lockPath).Trim(), out pid)) return false;
+            Process p = Process.GetProcessById(pid); // 없으면 예외
+            return p != null && !p.HasExited && p.ProcessName.ToLower() == "node";
+        }
+        catch { return false; }
+    }
+
+    // 법률봇 .env에서 특정 키 읽기
+    static string ReadLawEnvValue(string wantKey)
+    {
+        try
+        {
+            string envPath = Path.Combine(lawBotDir, ".env");
+            if (!File.Exists(envPath)) return "";
+            foreach (string line in File.ReadAllLines(envPath))
+            {
+                string trimmed = line.Trim();
+                if (trimmed.StartsWith("#")) continue;
+                int eq = trimmed.IndexOf('=');
+                if (eq < 0) continue;
+                if (trimmed.Substring(0, eq).Trim() == wantKey) return trimmed.Substring(eq + 1).Trim();
+            }
+        }
+        catch { }
+        return "";
+    }
+
+    // 절전/종료 시 healthcheck 일시정지 → 의도적 off 오탐 방지. 깨어나면 봇 ping이 자동 재개.
+    static void PauseHealthcheck()
+    {
+        try
+        {
+            string url = ReadLawEnvValue("HEALTHCHECK_URL");
+            string apiKey = ReadLawEnvValue("HEALTHCHECK_API_KEY");
+            if (string.IsNullOrEmpty(url) || string.IsNullOrEmpty(apiKey)) return;
+            string uuid = url.TrimEnd('/');
+            int slash = uuid.LastIndexOf('/');
+            if (slash >= 0) uuid = uuid.Substring(slash + 1);
+            if (string.IsNullOrEmpty(uuid)) return;
+            ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
+            using (WebClient c = new WebClient())
+            {
+                c.Headers["X-Api-Key"] = apiKey;
+                c.Headers[HttpRequestHeader.ContentType] = "application/json";
+                c.UploadString("https://healthchecks.io/api/v3/checks/" + uuid + "/pause", "POST", "");
+            }
         }
         catch { }
     }
@@ -782,9 +953,11 @@ class LawBotTrayLauncher
         menu.Items.Add(autoStartItem);
 
         menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add(L("rebuild"), null, (s, e) => RebuildLawBotAndRestart());
         menu.Items.Add(L("restart"), null, (s, e) => {
             StopLawBot(silent: true);
             lawBotCrashCount = 0;
+            nextRestartAt = DateTime.MinValue;
             StartLawBot();
             BuildMenu();
         });
@@ -831,6 +1004,24 @@ class LawBotTrayLauncher
                 else
                 {
                     key.DeleteValue(AutoStartKey, false);
+                }
+            }
+        }
+        catch { }
+    }
+
+    // 최초 실행 시 자동 시작을 기본 ON으로 등록(한 번만). 이후 사용자가 끄면 그 선택 유지.
+    static void InitAutoStartDefault()
+    {
+        try
+        {
+            using (RegistryKey app = Registry.CurrentUser.CreateSubKey(@"SOFTWARE\LawBot"))
+            {
+                if (app == null) return;
+                if (app.GetValue("AutoStartInitialized") == null)
+                {
+                    app.SetValue("AutoStartInitialized", "1");
+                    if (!IsAutoStartEnabled()) SetAutoStart(true);
                 }
             }
         }
@@ -893,6 +1084,7 @@ class LawBotTrayLauncher
         }
 
         MigrateFromLegacyState();
+        InitAutoStartDefault();
 
         // Start law-bot (if .env exists, else prompt settings)
         if (File.Exists(Path.Combine(lawBotDir, ".env")))
@@ -917,29 +1109,97 @@ class LawBotTrayLauncher
             if (File.Exists(logPath)) Process.Start("notepad", logPath);
         };
 
-        // Crash watch — auto-restart (max 3 retries)
+        // Crash watch — 종료 코드 구분 + 시간창 백오프 재시작
+        //  exit 1  = 중복 실행/409 충돌/설정 오류 → 재시작 금지
+        //  그 외(82 등) = 접속 문제/크래시 → 백오프 재시작(영구 중지하지 않음)
         Timer timer = new Timer();
         timer.Interval = 2000;
         timer.Tick += (s, e) =>
         {
+            // 0) 원격 재시작 트리거 파일 감지 (메인봇 /lawrestart, 이메일 폴러 등이 생성)
+            string triggerPath = Path.Combine(lawBotDir, "restart.trigger");
+            if (File.Exists(triggerPath))
+            {
+                try { File.Delete(triggerPath); } catch { }
+                try { SendLawBotTelegram("🔄 원격 재시작 신호 수신 — 법률 봇을 재시작합니다."); } catch { }
+                StopLawBot(silent: true);
+                lawBotCrashCount = 0;
+                nextRestartAt = DateTime.MinValue;
+                StartLawBot(silent: true);
+                BuildMenu();
+                return;
+            }
+
+            // 1) 예기치 않게 종료된 경우 처리
             if (lawBotProcess != null && lawBotProcess.HasExited && lawBotEnabled)
             {
+                int code = 0;
+                try { code = lawBotProcess.ExitCode; } catch { }
                 lawBotProcess = null;
-                if (lawBotCrashCount >= 3)
+
+                if (code == 1)
                 {
+                    // 중복 실행/409/설정 오류 — 재시작하면 같은 문제 반복 → 중지
                     lawBotEnabled = false;
-                    SendLawBotTelegram("⚠️ 법률 봇이 반복 오류로 중지되었습니다. 트레이에서 수동으로 시작해주세요.");
-                    lawBotCrashCount = 0;
+                    nextRestartAt = DateTime.MinValue;
+                    SendLawBotTelegram("⚠️ 법률 봇이 중복 실행/설정 문제로 중지되었습니다. 설정을 확인해주세요.");
+                    BuildMenu();
                 }
                 else
                 {
+                    // 안정적으로 돌다가 죽은 경우(5분 이상 가동)면 카운터 리셋
+                    DateTime now = DateTime.Now;
+                    if ((now - lastLawCrashAt).TotalMinutes > 5) lawBotCrashCount = 0;
                     lawBotCrashCount++;
-                    StartLawBot(silent: true);
+                    lastLawCrashAt = now;
+                    // 연속 실패일수록 재시작 간격 확대(2s→최대 60s). 영구 중지는 하지 않음.
+                    int exp = Math.Min(lawBotCrashCount - 1, 5);
+                    int backoffSec = Math.Min(60, 2 * (int)Math.Pow(2, exp));
+                    nextRestartAt = now.AddSeconds(backoffSec);
+                    if (lawBotCrashCount == 6)
+                        SendLawBotTelegram("⚠️ 법률 봇 연결이 불안정합니다. 자동 재시도를 계속합니다.");
+                    BuildMenu();
                 }
+            }
+            // 2) 백오프 대기가 끝나면 재시작
+            else if (lawBotEnabled && lawBotProcess == null
+                     && nextRestartAt != DateTime.MinValue && DateTime.Now >= nextRestartAt)
+            {
+                nextRestartAt = DateTime.MinValue;
+                StartLawBot(silent: true);
                 BuildMenu();
             }
+
+            // 3) 상호 감시: 메인봇이 3분+ 죽어 있으면 main-restart.trigger 생성
+            //    → 메인 런처가 감지해 메인봇을 재시작한다.
+            try
+            {
+                string root = Path.GetFullPath(Path.Combine(lawBotDir, ".."));
+                if (File.Exists(Path.Combine(root, "bot.js")))
+                {
+                    if (IsMainBotAlive(root)) { mainDownSince = DateTime.MinValue; mainDownTriggered = false; }
+                    else
+                    {
+                        if (mainDownSince == DateTime.MinValue) mainDownSince = DateTime.Now;
+                        if (!mainDownTriggered && (DateTime.Now - mainDownSince).TotalMinutes >= 3)
+                        {
+                            mainDownTriggered = true;
+                            try { File.WriteAllText(Path.Combine(root, "main-restart.trigger"), DateTime.Now.ToString("o")); } catch { }
+                            try { SendLawBotTelegram("⚠️ 메인봇이 3분 넘게 응답이 없어 재시작 신호를 보냈습니다."); } catch { }
+                        }
+                    }
+                }
+            }
+            catch { }
         };
         timer.Start();
+
+        // 절전/종료(의도적 off) 감지 → healthcheck 일시정지(오탐 알림 방지)
+        SystemEvents.PowerModeChanged += (s, e) =>
+        {
+            if (e.Mode == PowerModes.Suspend) PauseHealthcheck();
+        };
+        SystemEvents.SessionEnding += (s, e) => PauseHealthcheck();
 
         Application.Run();
     }
